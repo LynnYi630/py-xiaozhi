@@ -1,9 +1,11 @@
 import asyncio
 import os
+import sys
 import platform
 from typing import Callable, Optional
 
 from src.display.base_display import BaseDisplay
+from src.application import Application
 
 # 根据不同操作系统处理 pynput 导入
 try:
@@ -148,6 +150,17 @@ class CliDisplay(BaseDisplay):
         """
         self.running = False
         print("\n正在关闭应用...")
+        app = Application.get_instance()
+        if app:
+            # 使用事件循环运行 shutdown 方法
+            try:
+                # 获取当前正在运行的事件循环
+                loop = asyncio.get_running_loop()
+                # 在事件循环中创建一个任务来执行 Application 实例的 shutdown 方法
+                loop.create_task(app.shutdown())
+            except RuntimeError:
+                # 没有运行中的事件循环，直接退出程序
+                sys.exit(0)
 
     def _print_help(self):
         """
