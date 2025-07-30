@@ -292,11 +292,11 @@ class Application:
         # 设置协议回调
         self._setup_protocol_callbacks()
 
-        # 启动日程提醒服务
-        await self._start_calendar_reminder_service()
+        # # 启动日程提醒服务
+        # await self._start_calendar_reminder_service()
 
-        # 启动倒计时器服务
-        await self._start_timer_service()
+        # # 启动倒计时器服务
+        # await self._start_timer_service()
 
         # 初始化快捷键管理器
         await self._initialize_shortcuts()
@@ -845,6 +845,9 @@ class Application:
         处理STT消息.
         """
         text = data.get("text", "")
+        # 如果文本中含有“拜拜”、“再见”等词语，则在回答完这一次后将设备状态改为待命（IDLE）
+        if any(word in text for word in ["拜拜", "再见", "Bye", "bye"]):
+            self.keep_listening = False
         if text:
             logger.info(f">> {text}")
             self.set_chat_message("user", text)
