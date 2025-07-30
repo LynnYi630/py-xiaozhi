@@ -14,7 +14,7 @@ class VolumeController:
     """
 
     # 默认音量常量
-    DEFAULT_VOLUME = 70
+    DEFAULT_VOLUME = 100
 
     # 平台特定的方法映射
     PLATFORM_INIT = {

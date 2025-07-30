@@ -5,22 +5,23 @@
 
 import asyncio
 import json
-import os
 from typing import Any, Dict
 
 import aiohttp
 
 from src.utils.logging_config import get_logger
+from src.utils.config_manager import ConfigManager
 
 logger = get_logger(__name__)
 
 
 def get_amap_api_key() -> str:
     """获取高德地图API密钥."""
-    # api_key = os.getenv("AMAP_API_KEY")
-    # if not api_key:
-    #     raise ValueError("AMAP_API_KEY environment variable is not set")
-    return ''
+    config = ConfigManager.get_instance()
+    api_key = config.get("AMAP", "api_key")
+    if not api_key:
+        raise ValueError("AMAP api_key is not set in config.json")
+    return api_key
 
 
 async def maps_regeocode(args: Dict[str, Any]) -> str:
