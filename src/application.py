@@ -87,6 +87,9 @@ class Application:
         self.keep_listening = False
         self.aborted = False
 
+        # ROS发布器
+        self.ros_publisher = None
+
         # 异步组件
         self.audio_codec = None
         self.protocol = None
@@ -131,6 +134,13 @@ class Application:
 
         mode = kwargs.get("mode", "gui")
         protocol = kwargs.get("protocol", "websocket")
+        
+        # 设置ROS发布器
+        self.ros_publisher = kwargs.get("ros_publisher")
+        if self.ros_publisher:
+            logger.info("ROS2发布器已设置")
+        else:
+            logger.info("未提供ROS2发布器，将跳过ROS2消息发布")
 
         if mode == "gui":
             # GUI模式：需要创建Qt应用和qasync事件循环
@@ -552,7 +562,7 @@ class Application:
 
         await self._set_device_state(DeviceState.CONNECTING)
 
-        self.keep_listening = keep_listening_flag
+        self._set_keep_listening(keep_listening_flag)
         await self.protocol.send_start_listening(listening_mode)
         await self._set_device_state(DeviceState.LISTENING)
         return True
@@ -647,6 +657,36 @@ class Application:
         if self.display:
             asyncio.create_task(update_func(*args))
 
+    def _publish_ros_message(self, message: str):
+        """
+        发布ROS2消息的辅助方法.
+        """
+        if self.ros_publisher:
+            try:
+                # 导入ROS2消息类型
+                try:
+                    from std_msgs.msg import String
+                    msg = String()
+                    msg.data = message
+                    self.ros_publisher.publisher.publish(msg)
+                    logger.info(f"已发布ROS2消息: {message}")
+                except ImportError:
+                    logger.warning("ROS2库未安装，跳过消息发布")
+            except Exception as e:
+                logger.error(f"发布ROS2消息失败: {e}")
+
+    def _set_keep_listening(self, value: bool):
+        """
+        设置keep_listening状态并发布ROS消息.
+        """
+        if self.keep_listening != value:
+            self.keep_listening = value
+            if value:
+                self._publish_ros_message("wake_word_detected")
+            else:
+                self._publish_ros_message("conversation_ended")
+            logger.info(f"keep_listening状态变更为: {value}")
+
     async def _set_device_state_impl(self, state):
         """
         设备状态设置.
@@ -726,7 +766,7 @@ class Application:
         """
         处理网络错误.
         """
-        self.keep_listening = False
+        self._set_keep_listening(False)
         await self._set_device_state(DeviceState.IDLE)
 
         if self.protocol:
@@ -845,9 +885,9 @@ class Application:
         处理STT消息.
         """
         text = data.get("text", "")
-        # 如果文本中含有“拜拜”、“再见”等词语，则在回答完这一次后将设备状态改为待命（IDLE）
+        # 如果文本中含有"拜拜"、"再见"等词语，则在回答完这一次后将设备状态改为待命（IDLE）
         if any(word in text for word in ["拜拜", "再见", "Bye", "bye"]):
-            self.keep_listening = False
+            self._set_keep_listening(False)
         if text:
             logger.info(f">> {text}")
             self.set_chat_message("user", text)
@@ -883,7 +923,7 @@ class Application:
         """
         logger.info("音频通道已关闭")
         await self._set_device_state(DeviceState.IDLE)
-        self.keep_listening = False
+        self._set_keep_listening(False)
 
     async def _initialize_wake_word_detector(self):
         """
@@ -937,7 +977,7 @@ class Application:
                 return
 
             await self.protocol.send_wake_word_detected("唤醒")
-            self.keep_listening = True
+            self._set_keep_listening(True)
             await self.protocol.send_start_listening(ListeningMode.AUTO_STOP)
             await self._set_device_state(DeviceState.LISTENING)
 
@@ -1010,7 +1050,7 @@ class Application:
             if self.device_state != DeviceState.IDLE:
                 return False
 
-            self.keep_listening = not self.keep_listening
+            self._set_keep_listening(not self.keep_listening)
             return True
         except Exception as e:
             logger.error(f"模式变更检查失败: {e}")

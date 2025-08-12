@@ -3,10 +3,87 @@ import asyncio
 import sys
 import time
 
+# ROS2 imports
+try:
+    import rclpy
+    from rclpy.node import Node
+    from std_msgs.msg import String
+    ROS_AVAILABLE = True
+except ImportError:
+    print("警告: ROS2库未安装，将跳过ROS功能")
+    ROS_AVAILABLE = False
+
 from src.application import Application
 from src.utils.logging_config import get_logger, setup_logging
 
 logger = get_logger(__name__)
+
+# ROS2状态跟踪
+_ros2_initialized = False
+_ros2_shutdown = False
+
+
+class XiaozhiROS2Node(Node):
+    """小智AI客户端ROS2节点"""
+    
+    def __init__(self):
+        super().__init__('xiaozhi_ai_client')
+        # 创建发布器，发布到 /xiaozhi/listening_state 话题
+        self.publisher = self.create_publisher(String, '/xiaozhi/listening_state', 10)
+        self.get_logger().info('小智AI ROS2节点已初始化，话题: /xiaozhi/listening_state')
+
+
+def init_ros2_node():
+    """
+    初始化ROS2节点.
+    """
+    global _ros2_initialized, _ros2_shutdown
+    
+    if not ROS_AVAILABLE:
+        return None
+    
+    try:
+        if not _ros2_initialized:
+            rclpy.init()
+            _ros2_initialized = True
+            _ros2_shutdown = False
+            
+        node = XiaozhiROS2Node()
+        logger.info("ROS2节点初始化成功，话题: /xiaozhi/listening_state")
+        return node
+    except Exception as e:
+        logger.error(f"ROS2节点初始化失败: {e}")
+        return None
+
+
+def cleanup_ros2(ros_node=None):
+    """
+    安全清理ROS2资源
+    """
+    global _ros2_initialized, _ros2_shutdown
+    
+    if not ROS_AVAILABLE or _ros2_shutdown:
+        return
+    
+    try:
+        # 先销毁节点
+        if ros_node:
+            ros_node.destroy_node()
+            logger.debug("ROS2节点已销毁")
+        
+        # 再关闭rclpy，但只关闭一次
+        if _ros2_initialized and not _ros2_shutdown:
+            rclpy.shutdown()
+            _ros2_shutdown = True
+            logger.info("ROS2资源已清理")
+            
+    except Exception as e:
+        # 检查是否是重复关闭的错误
+        if "rcl_shutdown already called" in str(e):
+            logger.debug("ROS2已经关闭，跳过重复清理")
+            _ros2_shutdown = True
+        else:
+            logger.error(f"清理ROS2资源时出错: {e}")
 
 
 def parse_args():
@@ -17,7 +94,7 @@ def parse_args():
     parser.add_argument(
         "--mode",
         choices=["gui", "cli"],
-        default="gui",
+        default="cli",
         help="运行模式：gui(图形界面) 或 cli(命令行)",
     )
     parser.add_argument(
@@ -184,17 +261,30 @@ async def main():
     else:
         logger.warning("跳过激活流程（调试模式）")
 
+    # 初始化ROS2节点
+    ros_node = init_ros2_node()
+
     # 创建并启动应用程序
     app = Application.get_instance()
-    return await app.run(mode=args.mode, protocol=args.protocol)
+    result = await app.run(mode=args.mode, protocol=args.protocol, ros_publisher=ros_node)
+    
+    # 清理ROS2资源
+    cleanup_ros2(ros_node)
+    
+    return result
 
 
 if __name__ == "__main__":
+    ros_node = None
     try:
         sys.exit(asyncio.run(main()))
     except KeyboardInterrupt:
         logger.info("程序被用户中断")
+        # 确保ROS2资源被清理
+        cleanup_ros2()
         sys.exit(0)
     except Exception as e:
         logger.error(f"程序异常退出: {e}", exc_info=True)
+        # 确保ROS2资源被清理
+        cleanup_ros2()
         sys.exit(1)
