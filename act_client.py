@@ -36,32 +36,44 @@ KEYWORDS_ACTIONS = [
     {
         "name": "握手",
         "keywords": ["握手", "握个手"],  # 多个关键词对应同一指令
-        "command": ["handshake", "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"]
+        "action": "ros2 run interface_example joint_test_example_continue_num /joint_test_handshake.yaml",
+        "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+        "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
     },
     {
         "name": "招手",
         "keywords": ["招手", "招个手", "招个拿手", "挥挥手", "招招手"],
-        "command": ["hello", "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"]
+        "action": "ros2 run interface_example joint_test_example_continue_num /joint_test_hello.yaml",
+        "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+        "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
     },
     {
         "name": "再见",
         "keywords": ["再见", "拜拜"],
-        "command": ["hello", "aplay /home/ubuntu/py-xiaozhi/audio/goodbye.wav"]
+        "action": "ros2 run interface_example joint_test_example_continue_num /joint_test_hello.yaml",
+        "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+        "audio": "aplay /home/ubuntu/py-xiaozhi/audio/goodbye.wav"
     },
     {
         "name": "敬礼",
-        "keywords": ["敬礼", "敬个礼", "敬个里", "敬一个里", "敬一个你", "敬个你", "记个礼", "记个里", "记个你"],
-        "command": ["salute", "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"]
+        "keywords": ["敬礼", "敬个礼", "敬个里", "敬一个里", "敬一个你", "敬个你", "记个礼", "记个里", "记个你", "进个里", "金个里"],
+        "action": "ros2 run interface_example joint_test_example /joint_test_salute.yaml"  ,
+        "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+        "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
     },
     {
         "name": "欢迎",
         "keywords": ["招待", "请进"],
-        "command": ["welcome", "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"]
+        "action": "ros2 run interface_example joint_test_example /joint_test_welcome.yaml", 
+        "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+        "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
     },
     {
         "name": "拦截",
         "keywords": ["禁止通行", "拦截", "请勿通过", "阻拦", "挡住", "制止"],
-        "command": ["intercept_left", "intercept_right", "aplay /home/ubuntu/py-xiaozhi/audio/intercept.wav"]
+        "actions": ["ros2 run interface_example joint_test_example /joint_test_intercept_left.yaml", "ros2 run interface_example joint_test_example /joint_test_intercept_right.yaml"],
+        "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+        "audio": "aplay /home/ubuntu/py-xiaozhi/audio/intercept.wav"
     },
     {
         "name": "结束",
@@ -73,9 +85,9 @@ KEYWORDS_ACTIONS = [
 WAKE_CONFIG = {
     "USE_WAKE_WORD": True,
     "MODEL_PATH": "models/vosk-model-small-cn-0.22",
-    "WAKE_WORDS": ["小金小金", "你好小金", "小京小京", "你好小京","小鸡小鸡","你好小鸡"],  # 自定义唤醒词
-    "SIMILARITY_THRESHOLD": 0.65,
-    "MAX_EDIT_DISTANCE": 2
+    "WAKE_WORDS": ["小玛小玛", "你好小玛", "小马小马", "你好小马"],  # 自定义唤醒词
+    "SIMILARITY_THRESHOLD": 0.7,
+    "MAX_EDIT_DISTANCE": 1
 }
 
 # 设置日志
@@ -86,6 +98,16 @@ logger = logging.getLogger("RobotClient")
 is_awake = False  # 是否处于唤醒状态
 wake_detector: Optional[WakeWordDetector] = None  # 唤醒词检测器实例
 audio_stream_task: Optional[asyncio.Task] = None  # 音频流任务
+
+def run_command(cmd: str, shell: bool = True, check: bool = True):
+    process = subprocess.Popen(cmd, shell=shell)
+    process.wait()  # 等待子进程结束
+    # 模拟check=True的行为：非0退出码时抛出异常
+    if check and process.returncode != 0:
+        raise subprocess.CalledProcessError(
+            returncode=process.returncode,
+            cmd=cmd
+        )
 
 def process_command(text: str):
     """检查文本是否包含关键词并执行相应动作"""
@@ -98,23 +120,34 @@ def process_command(text: str):
                     if action["name"] == "拦截":
                         # 随机抽取0和1号命令
                         random_index = random.randint(0, 1)
-                        cmd = action["command"][random_index]
-                        print(action_publisher)
-                        action_publisher.send_action_command(cmd)
-                        thread = threading.Thread(target=subprocess.run, args=(action["command"][2],), kwargs={"shell": True, "check": True})
-                        thread.start()
-                        action_publisher.send_action_command("reset")
+                        cmd = action["actions"][random_index]
+                        # 执行拦截动作
+                        action_thread = threading.Thread(target=run_command, args=(cmd,), kwargs={"shell": True, "check": True})
+                        action_thread.start()
+                        # 同时播放拦截提示音
+                        audio_thread = threading.Thread(target=run_command, args=(action["audio"],), kwargs={"shell": True, "check": True})
+                        audio_thread.start()
+                        # 等待动作执行完成
+                        action_thread.join()
+                        # 机器人恢复原位
+                        subprocess.run(action["reset"], shell=True, check=True)
                     elif action["name"] == "结束":
                         # 终止程序
                         logger.info("收到结束指令，终止程序")
                         subprocess.run("aplay /home/ubuntu/py-xiaozhi/audio/shutdown.wav", shell=True, check=True)
                         exit(0)
                     else: 
-                        # 通过ros2节点发送指令
-                        action_publisher.send_action_command(action["command"][0])
-                        thread = threading.Thread(target=subprocess.run, args=(action["command"][1],), kwargs={"shell": True, "check": True})
-                        thread.start()
-                        action_publisher.send_action_command("reset")
+                        logger.info(f"执行指令: {action['action']}")
+                        # 执行动作
+                        action_thread = threading.Thread(target=run_command, args=(action["action"],), kwargs={"shell": True, "check": True})
+                        action_thread.start()
+                        # 同时播放动作提示音
+                        audio_thread = threading.Thread(target=run_command, args=(action["audio"],), kwargs={"shell": True, "check": True})
+                        audio_thread.start()
+                        # 等待动作执行完成
+                        action_thread.join()
+                        # 机器人恢复原位
+                        subprocess.run(action["reset"], shell=True, check=True)
                     # 执行完指令后自动休眠
                     logger.info("指令执行完成，进入休眠状态")
                     is_awake = False

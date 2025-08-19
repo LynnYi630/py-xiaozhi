@@ -7,8 +7,12 @@ import time
 try:
     import rclpy
     from rclpy.node import Node
+    from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
+    from interface_protocol.msg import GamepadKeys
+    import os
     from std_msgs.msg import String
     ROS_AVAILABLE = True
+    
 except ImportError:
     print("警告: ROS2库未安装，将跳过ROS功能")
     ROS_AVAILABLE = False
@@ -28,9 +32,56 @@ class XiaozhiROS2Node(Node):
     
     def __init__(self):
         super().__init__('xiaozhi_ai_client')
+        # 设置QoS策略，与C++版本保持一致
+        qos_profile = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            depth=3
+        )
+
+        # 创建订阅者，监听手柄按键状态消息
+        self.gamepad_sub = self.create_subscription(
+            GamepadKeys,
+            '/hardware/gamepad_keys',
+            self.gamepad_callback,
+            qos_profile
+        )
         # 创建发布器，发布到 /xiaozhi/listening_state 话题
         self.publisher = self.create_publisher(String, '/xiaozhi/listening_state', 10)
         self.get_logger().info('小智AI ROS2节点已初始化，话题: /xiaozhi/listening_state')
+
+def gamepad_callback(self, msg):
+        """
+        订阅者回调函数，在收到手柄消息时被调用。
+        """
+        # 检查收到的消息中按键状态列表的长度是否足够
+        if len(msg.digital_states) < 12:
+            self.get_logger().warn(f"Received GamepadKeys message with only {len(msg.digital_states)} states, expected at least 12. Skipping.")
+            return
+
+        # --- 所有按键状态保留区 ---
+        # 从消息中获取所有在 C++ 版本中定义的按键状态，确保完全对应
+        lb_pressed = msg.digital_states[0]    # Left Bumper (在原始逻辑中未使用)
+        rb_pressed = msg.digital_states[1]    # Right Bumper
+        a_pressed = msg.digital_states[2]     # A按钮
+        b_pressed = msg.digital_states[3]     # B按钮
+        x_pressed = msg.digital_states[4]     # X按钮
+        y_pressed = msg.digital_states[5]     # Y按钮
+        back_pressed = msg.digital_states[6]  # Back按钮 (在原始逻辑中未使用)
+        start_pressed = msg.digital_states[7] # Start按钮 (在原始逻辑中未使用)
+        cross_x_up_pressed = msg.digital_states[8]   # 十字键上
+        cross_x_down_pressed = msg.digital_states[9] # 十字键下
+        cross_y_left_pressed = msg.digital_states[10] # 十字键左
+        cross_y_right_pressed = msg.digital_states[11]# 十字键右
+        # --- 按键状态读取结束 ---
+
+        # --- 所有按键组合功能保留区 ---
+        # 根据按键组合执行不同的命令，这部分逻辑与C++版本完全一致
+        # RB + Y: 敬礼
+        if rb_pressed and y_pressed:
+            self._execute_command(self.joint_test_cmd, "/joint_test_salute.yaml", "RB + Y")
+        
+        # --- 功能区结束 ---
 
 
 def init_ros2_node():
@@ -277,14 +328,24 @@ async def main():
 if __name__ == "__main__":
     ros_node = None
     try:
-        sys.exit(asyncio.run(main()))
+        exit_code = asyncio.run(main())
+        sys.exit(exit_code)
     except KeyboardInterrupt:
         logger.info("程序被用户中断")
-        # 确保ROS2资源被清理
-        cleanup_ros2()
+        # 清理ros2资源
+        logger.info("正在清理ROS2资源")
+        cleanup_ros2(ros_node)
+        logger.info("ROS2资源清理完成")
+        # 确保应用程序实例被正确关闭
+        app = Application.get_instance()
+        if app:
+            asyncio.run(app.shutdown())
         sys.exit(0)
     except Exception as e:
         logger.error(f"程序异常退出: {e}", exc_info=True)
-        # 确保ROS2资源被清理
-        cleanup_ros2()
+        # 确保应用程序实例被正确关闭
+        app = Application.get_instance()
+        if app:
+            asyncio.run(app.shutdown())
+        cleanup_ros2(ros_node)
         sys.exit(1)
