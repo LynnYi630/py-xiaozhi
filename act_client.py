@@ -15,20 +15,20 @@ from src.utils.config_manager import ConfigManager  # 添加配置管理
 # 假设audio_codec.py和它的依赖项在你的PYTHONPATH中
 from src.audio_codecs.audio_codec import AudioCodec
 
-import rclpy
-from rclpy.node import Node
-from std_msgs.msg import String
+# import rclpy
+# from rclpy.node import Node
+# from std_msgs.msg import String
 
-class ActionPublisherNode(Node):
-    def __init__(self):
-        super().__init__('action_publisher_node')
-        self.publisher_ = self.create_publisher(String, '/action_command', 10)
+# class ActionPublisherNode(Node):
+#     def __init__(self):
+#         super().__init__('action_publisher_node')
+#         self.publisher_ = self.create_publisher(String, '/action_command', 10)
 
-    def send_action_command(self, action):
-        msg = String()
-        msg.data = action
-        self.publisher_.publish(msg)
-        self.get_logger().info(f"Published action command: '{action}'")
+#     def send_action_command(self, action):
+#         msg = String()
+#         msg.data = action
+#         self.publisher_.publish(msg)
+#         self.get_logger().info(f"Published action command: '{action}'")
 
 # --- 配置 ---
 SERVER_URI = "ws://192.168.1.111:8765"  # 修改为你的服务器地址
@@ -85,7 +85,13 @@ KEYWORDS_ACTIONS = [
 WAKE_CONFIG = {
     "USE_WAKE_WORD": True,
     "MODEL_PATH": "models/vosk-model-small-cn-0.22",
-    "WAKE_WORDS": ["小玛小玛", "你好小玛", "小马小马", "你好小马"],  # 自定义唤醒词
+    "WAKE_WORDS": [
+        "小金小金",
+        "你好小金",
+        "小京小京",
+        "你好小京",
+        "你好小鸡",
+        "小鸡小鸡"], 
     "SIMILARITY_THRESHOLD": 0.7,
     "MAX_EDIT_DISTANCE": 1
 }
@@ -220,8 +226,8 @@ def send_audio_callback(encoded_data: bytes):
 async def main(args=None):
     """主程序"""
     global wake_detector, is_awake, loop, websocket, action_publisher  # 添加全局变量声明
-    rclpy.init(args=args)
-    action_publisher = ActionPublisherNode()
+    # rclpy.init(args=args)
+    # action_publisher = ActionPublisherNode()
     audio_codec = AudioCodec()
     config_manager = ConfigManager.get_instance()
     
@@ -280,7 +286,7 @@ async def main(args=None):
                 logger.error(f"停止唤醒词检测器失败: {e}")
                 
         # 关闭rclpy
-        rclpy.shutdown()
+        # rclpy.shutdown()
         logger.info("程序退出。")
 
 

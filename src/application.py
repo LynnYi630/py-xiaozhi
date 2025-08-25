@@ -1,6 +1,7 @@
 import asyncio
 import json
 import signal
+import subprocess
 import sys
 import threading
 from typing import Set
@@ -107,6 +108,7 @@ class Application:
 
         # 保存主线程的事件循环（稍后在run方法中设置）
         self._main_loop = None
+        self.first_salute = False
 
         # MCP服务器
         self.mcp_server = McpServer.get_instance()
@@ -825,6 +827,16 @@ class Application:
         except Exception as e:
             logger.error(f"处理JSON消息时出错: {e}", exc_info=True)
 
+    async def execute_robot_actions(self, actions: list):
+        for action in actions:
+            try:
+                # 执行动作
+                logger.info(f"执行{action}动作")
+                await asyncio.to_thread(subprocess.run, self.config.get_config(), shell=True, check=True)
+                logger.info(f"{action}动作执行完成")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"机器人动作执行失败: {e}")
+
     async def _handle_tts_message(self, data):
         """
         处理TTS消息.
@@ -838,6 +850,9 @@ class Application:
             text = data.get("text", "")
             if text:
                 logger.info(f"<< {text}")
+                # if "大家好" in text:
+                    # # 创建任务执行，不阻塞当前协程
+                    # asyncio.create_task(self.execute_robot_actions(["hold_salute", "hold"]))
                 self.set_chat_message("assistant", text)
 
                 import re
@@ -885,12 +900,16 @@ class Application:
         处理STT消息.
         """
         text = data.get("text", "")
-        # 如果文本中含有"拜拜"、"再见"等词语，则在回答完这一次后将设备状态改为待命（IDLE）
-        if any(word in text for word in ["拜拜", "再见", "Bye", "bye"]):
-            self._set_keep_listening(False)
         if text:
             logger.info(f">> {text}")
             self.set_chat_message("user", text)
+        # 如果文本中含有"拜拜"、"再见"等词语，则在回答完这一次后将设备状态改为待命（IDLE）
+        if any(word in text for word in ["拜拜", "再见", "Bye", "bye"]):
+            self._set_keep_listening(False)
+            # 创建任务执行，不阻塞当前协程
+            # asyncio.create_task(self.execute_robot_actions(["goodbye", "reset"]))
+            
+
 
     async def _handle_llm_message(self, data):
         """
