@@ -42,7 +42,7 @@ KEYWORDS_ACTIONS = [
     },
     {
         "name": "招手",
-        "keywords": ["招手", "招个手", "招个拿手", "挥挥手", "招招手"],
+        "keywords": ["招手", "招个手", "招个拿手", "挥挥手", "招招手", "找个手"],
         "action": "ros2 run interface_example joint_test_example_continue_num /joint_test_hello.yaml",
         "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
         "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
@@ -56,7 +56,7 @@ KEYWORDS_ACTIONS = [
     },
     {
         "name": "敬礼",
-        "keywords": ["敬礼", "敬个礼", "敬个里", "敬一个里", "敬一个你", "敬个你", "记个礼", "记个里", "记个你", "进个里", "金个里"],
+        "keywords": ["敬礼", "敬个礼", "敬个里", "敬个理", "敬一个里", "敬一个你", "敬个你", "记个礼", "寄个礼", "寄个你", "记个里", "记个你", "进个里", "金个里"],
         "action": "ros2 run interface_example joint_test_example /joint_test_salute.yaml"  ,
         "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
         "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
