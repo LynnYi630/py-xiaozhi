@@ -4,6 +4,7 @@ import signal
 import subprocess
 import sys
 import threading
+import random
 from typing import Set
 
 from src.constants.constants import AbortReason, DeviceState, ListeningMode
@@ -15,6 +16,7 @@ from src.utils.common_utils import handle_verification_code
 from src.utils.config_manager import ConfigManager
 from src.utils.logging_config import get_logger
 from src.utils.opus_loader import setup_opus
+from src.utils.keyword_matcher import KeywordMatcher
 
 # 忽略SIGTRAP信号
 try:
@@ -87,6 +89,10 @@ class Application:
         self.voice_detected = False
         self.keep_listening = False
         self.aborted = False
+        self.is_action_awake = False
+
+        # 关键词匹配器
+        self.keyword_matcher = None
 
         # ROS发布器
         self.ros_publisher = None
@@ -301,6 +307,9 @@ class Application:
         # 初始化唤醒词检测
         await self._initialize_wake_word_detector()
 
+        # 初始化关键词匹配器
+        await self._initialize_keyword_matcher()
+
         # 设置协议回调
         self._setup_protocol_callbacks()
 
@@ -314,6 +323,21 @@ class Application:
         await self._initialize_shortcuts()
 
         logger.info("应用程序组件初始化完成")
+
+    async def _initialize_keyword_matcher(self):
+        """
+        初始化关键词匹配器.
+        """
+        try:
+            actions_config = self.config.get_config().get("ACTIONS", {})
+            self.keyword_matcher = KeywordMatcher(actions_config)
+            logger.info("关键词匹配器初始化成功")
+
+        except Exception as e:
+            logger.error("初始化关键词匹配器失败: %s", e, exc_info=True)
+            # 确保初始化失败时keyword_matcher为None
+            self.keyword_matcher = None
+
 
     async def _initialize_audio(self):
         """
@@ -828,14 +852,65 @@ class Application:
             logger.error(f"处理JSON消息时出错: {e}", exc_info=True)
 
     async def execute_robot_actions(self, actions: list):
-        for action in actions:
+        """
+        根据动作名称列表，从配置中查找并执行相应的机器人动作。
+        区分以下两种情况：
+        1. 对于“拦截”，从'actions'列表中随机选择一个执行。
+        2. 对于其他所有动作，直接执行'action'字符串。
+        """
+        all_actions_config = self.config.get_config().get("ACTIONS")
+        if not all_actions_config:
+            logger.error("配置文件中未找到 'ACTIONS' 部分或配置为空")
+            return
+
+        for action_name in actions:
+            action_config = all_actions_config.get(action_name)
+
+            if not action_config:
+                logger.warning(f"在配置文件中未找到名为 '{action_name}' 的动作")
+                continue
+
+            audio_cmd = action_config.get("audio")
+            reset_cmd = action_config.get("reset")
+
             try:
-                # 执行动作
-                logger.info(f"执行{action}动作")
-                await asyncio.to_thread(subprocess.run, self.config.get_config(), shell=True, check=True)
-                logger.info(f"{action}动作执行完成")
+                logger.info(f"开始执行动作: '{action_name}'")
+
+                # 音频播放任务并行执行，不受影响
+                if audio_cmd:
+                    logger.info(f"播放音频: {audio_cmd}")
+                    asyncio.create_task(
+                        asyncio.to_thread(subprocess.run, audio_cmd, shell=True, check=False),
+                        name=f"audio-{action_name}"
+                    )
+
+                # 路径1: 仅当动作是“拦截”时，处理'actions'列表
+                if action_name == "拦截":
+                    action_cmds_list = action_config.get("actions")
+                    if action_cmds_list:
+                        chosen_cmd = random.choice(action_cmds_list)
+                        logger.info(f"执行特殊动作 '{action_name}'，已随机选择命令: {chosen_cmd}")
+                        await asyncio.to_thread(subprocess.run, chosen_cmd, shell=True, check=True)
+                        logger.info(f"主命令 '{action_name}' 执行完成")
+                
+                # 路径2: 其他所有动作，直接处理'action'字符串
+                else:
+                    action_cmd_str = action_config.get("action")
+                    if action_cmd_str:
+                        logger.info(f"执行主命令: {action_cmd_str}")
+                        await asyncio.to_thread(subprocess.run, action_cmd_str, shell=True, check=True)
+                        logger.info(f"主命令 '{action_name}' 执行完成")
+
+                # 所有主动作完成后，执行复位任务
+                if reset_cmd:
+                    logger.info(f"执行复位命令: {reset_cmd}")
+                    await asyncio.to_thread(subprocess.run, reset_cmd, shell=True, check=True)
+                    logger.info(f"复位命令 '{action_name}' 执行完成")
+
             except subprocess.CalledProcessError as e:
-                logger.error(f"机器人动作执行失败: {e}")
+                logger.error(f"机器人动作 '{action_name}' 执行失败: {e}")
+            except Exception as e:
+                logger.error(f"执行动作 '{action_name}' 时发生未知错误: {e}", exc_info=True)
 
     async def _handle_tts_message(self, data):
         """
@@ -903,11 +978,29 @@ class Application:
         if text:
             logger.info(f">> {text}")
             self.set_chat_message("user", text)
-        # 如果文本中含有"拜拜"、"再见"等词语，则在回答完这一次后将设备状态改为待命（IDLE）
-        if any(word in text for word in ["拜拜", "再见", "Bye", "bye"]):
-            self._set_keep_listening(False)
-            # 创建任务执行，不阻塞当前协程
-            # asyncio.create_task(self.execute_robot_actions(["goodbye", "reset"]))
+
+            # 检查匹配器是否已成功初始化
+            if not self.keyword_matcher:
+                logger.error("关键词匹配器未初始化")
+                return
+
+            # 1. 使用KeywordMatcher在文本中查找第一个匹配的关键词
+            match_result = self.keyword_matcher.first_hit(text)
+
+            # 2. 如果找到了匹配项
+            if match_result:
+                action_name, keyword = match_result
+                logger.info(f"匹配到关键词 '{keyword}' -> 执行动作 '{action_name}'")
+
+                # 3. 执行匹配到的通用机器人动作（例如挥手、敬礼等）
+                #    使用create_task使其在后台运行，不阻塞当前流程
+                asyncio.create_task(self.execute_robot_actions([action_name]))
+
+                # 4. 根据动作名称处理特殊逻辑
+                #    如果匹配到的动作是“再见”，则设置停止监听的标志
+                if action_name == "再见":
+                    logger.info("检测到'再见'动作，将在本次对话后停止监听。")
+                    self._set_keep_listening(False)
             
 
 
@@ -973,12 +1066,12 @@ class Application:
         唤醒词检测回调.
         """
         logger.info(f"检测到唤醒词: {wake_word}")
-
+        # 
         if self.device_state == DeviceState.IDLE:
             await self._set_device_state(DeviceState.CONNECTING)
             await self._connect_and_start_listening(wake_word)
-        elif self.device_state == DeviceState.SPEAKING:
-            await self.abort_speaking(AbortReason.WAKE_WORD_DETECTED)
+        # elif self.device_state == DeviceState.SPEAKING:
+        #     await self.abort_speaking(AbortReason.WAKE_WORD_DETECTED)
 
     async def _connect_and_start_listening(self, wake_word):
         """

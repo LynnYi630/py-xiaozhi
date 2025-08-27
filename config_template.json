@@ -1,0 +1,153 @@
+{
+  "SYSTEM_OPTIONS": {
+    "CLIENT_ID": "d0d2d2ba-329c-4930-b38a-1ddfc11eb9b2",
+    "DEVICE_ID": "c4:65:16:ba:eb:3c",
+    "NETWORK": {
+      "OTA_VERSION_URL": "http://192.168.1.111:8002/xiaozhi/ota/",
+      "WEBSOCKET_URL": "ws://192.168.1.111:8000/xiaozhi/v1/",
+      "WEBSOCKET_ACCESS_TOKEN": "test-token",
+      "MQTT_INFO": {
+        "endpoint": "mqtt.xiaozhi.me",
+        "client_id": "GID_test@@@c4_65_16_ba_eb_3c@@@d0d2d2ba-329c-4930-b38a-1ddfc11eb9b2",
+        "username": "eyJpcCI6IjE0LjIyMy4xNjQuNSJ9",
+        "password": "H4UuwB2/JY6/I22SRD30qq8IuZ9EnaCIiKcYWPRpyao=",
+        "publish_topic": "device-server",
+        "subscribe_topic": "null"
+      },
+      "ACTIVATION_VERSION": "v2",
+      "AUTHORIZATION_URL": "http://192.168.1.111:8002/#/home"
+    }
+  },
+  "WAKE_WORD_OPTIONS": {
+    "USE_WAKE_WORD": true,
+    "MODEL_PATH": "models/vosk-model-small-cn-0.22",
+    "WAKE_WORDS": [
+      "小金小金",
+      "你好小金子",
+      "嗨小金子",
+      "嘿小金子"
+    ]
+  },
+  "CAMERA": {
+    "camera_index": 0,
+    "frame_width": 640,
+    "frame_height": 480,
+    "fps": 30,
+    "Local_VL_url": "https://open.bigmodel.cn/api/paas/v4/",
+    "VLapi_key": "",
+    "models": "glm-4v-plus"
+  },
+  "SHORTCUTS": {
+    "ENABLED": true,
+    "MANUAL_PRESS": {
+      "modifier": "ctrl",
+      "key": "j",
+      "description": "按住说话"
+    },
+    "AUTO_TOGGLE": {
+      "modifier": "ctrl",
+      "key": "k",
+      "description": "自动对话"
+    },
+    "ABORT": {
+      "modifier": "ctrl",
+      "key": "q",
+      "description": "中断对话"
+    },
+    "MODE_TOGGLE": {
+      "modifier": "ctrl",
+      "key": "m",
+      "description": "切换模式"
+    },
+    "WINDOW_TOGGLE": {
+      "modifier": "ctrl",
+      "key": "w",
+      "description": "显示/隐藏窗口"
+    }
+  },
+  "amap": {
+    "api_key": "662846893ae93351dd7682c760d59e94"
+  },
+  "ACT_SERVER_URI": "ws://192.168.1.111:8765",
+  "ACTIONS": {
+    "握手": {
+      "keywords": [
+        "握手",
+        "握个手"
+      ],
+      "action": "ros2 run interface_example joint_test_example_continue_num /joint_test_handshake.yaml",
+      "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+      "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
+    },
+    "招手": {
+      "keywords": [
+        "招手",
+        "招个手",
+        "招个拿手",
+        "挥挥手",
+        "招招手",
+        "找个手"
+      ],
+      "action": "ros2 run interface_example joint_test_example_continue_num /joint_test_hello.yaml",
+      "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+      "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
+    },
+    "再见": {
+      "keywords": [
+        "再见",
+        "拜拜",
+        "Bye",
+        "bye"
+      ],
+      "action": "ros2 run interface_example joint_test_example_continue_num /joint_test_hello.yaml",
+      "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+      "audio": "aplay /home/ubuntu/py-xiaozhi/audio/goodbye.wav"
+    },
+    "敬礼": {
+      "keywords": [
+        "敬礼",
+        "敬个礼",
+        "敬个里",
+        "敬个理",
+        "敬一个里",
+        "敬一个你",
+        "敬个你",
+        "记个礼",
+        "寄个礼",
+        "寄个你",
+        "记个里",
+        "记个你",
+        "进个里",
+        "金个里"
+      ],
+      "action": "ros2 run interface_example joint_test_example /joint_test_salute.yaml",
+      "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+      "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
+    },
+    "欢迎": {
+      "keywords": [
+        "招待",
+        "请进"
+      ],
+      "action": "ros2 run interface_example joint_test_example /joint_test_welcome.yaml",
+      "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+      "audio": "aplay /home/ubuntu/py-xiaozhi/audio/audio.wav"
+    },
+    "拦截": {
+      "keywords": [
+        "禁止通行",
+        "拦截",
+        "请勿通过",
+        "阻拦",
+        "挡住",
+        "制止"
+      ],
+      "actions": [
+        "ros2 run interface_example joint_test_example /joint_test_intercept_left.yaml",
+        "ros2 run interface_example joint_test_example /joint_test_intercept_right.yaml"
+      ],
+      "reset": "ros2 run interface_example joint_test_example /joint_test_reset.yaml",
+      "audio": "aplay /home/ubuntu/py-xiaozhi/audio/intercept.wav"
+    }
+  }
+}
