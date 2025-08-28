@@ -329,7 +329,7 @@ class Application:
         初始化关键词匹配器.
         """
         try:
-            actions_config = self.config.get_config().get("ACTIONS", {})
+            actions_config = self.config.get_config("ACTIONS", {})
             self.keyword_matcher = KeywordMatcher(actions_config)
             logger.info("关键词匹配器初始化成功")
 
@@ -657,7 +657,18 @@ class Application:
 
         try:
             await self.protocol.send_abort_speaking(reason)
-            await self._set_device_state(DeviceState.IDLE)
+            # 检查是否是由动作唤醒触发的中止
+            if self.is_action_awake:
+                # 如果是，则返回聆听状态
+                logger.debug("动作唤醒中止，将返回聆听状态")
+                await self.protocol.send_start_listening(ListeningMode.AUTO_STOP)
+                await self._set_device_state(DeviceState.LISTENING)
+                # !! 重要：使用后务必重置标志位，避免影响下一次中止 !!
+                self.is_action_awake = False
+            else:
+                # 如果不是（例如用户按键打断），则执行默认逻辑，回到待命状态
+                logger.debug("常规中止，将返回待命状态")
+                await self._set_device_state(DeviceState.IDLE)
             self.aborted = False
             if (
                 reason == AbortReason.WAKE_WORD_DETECTED
@@ -858,7 +869,7 @@ class Application:
         1. 对于“拦截”，从'actions'列表中随机选择一个执行。
         2. 对于其他所有动作，直接执行'action'字符串。
         """
-        all_actions_config = self.config.get_config().get("ACTIONS")
+        all_actions_config = self.config.get_config("ACTIONS")
         if not all_actions_config:
             logger.error("配置文件中未找到 'ACTIONS' 部分或配置为空")
             return
@@ -877,7 +888,7 @@ class Application:
                 logger.info(f"开始执行动作: '{action_name}'")
 
                 # 音频播放任务并行执行，不受影响
-                if audio_cmd:
+                if audio_cmd and action_name != "再见":
                     logger.info(f"播放音频: {audio_cmd}")
                     asyncio.create_task(
                         asyncio.to_thread(subprocess.run, audio_cmd, shell=True, check=False),
@@ -977,8 +988,6 @@ class Application:
         text = data.get("text", "")
         if text:
             logger.info(f">> {text}")
-            self.set_chat_message("user", text)
-
             # 检查匹配器是否已成功初始化
             if not self.keyword_matcher:
                 logger.error("关键词匹配器未初始化")
@@ -991,18 +1000,21 @@ class Application:
             if match_result:
                 action_name, keyword = match_result
                 logger.info(f"匹配到关键词 '{keyword}' -> 执行动作 '{action_name}'")
-
-                # 3. 执行匹配到的通用机器人动作（例如挥手、敬礼等）
-                #    使用create_task使其在后台运行，不阻塞当前流程
-                asyncio.create_task(self.execute_robot_actions([action_name]))
-
+                # 3. 先设置标志位，告诉系统接下来要进行的是一个“动作唤醒”
+                self.is_action_awake = True
                 # 4. 根据动作名称处理特殊逻辑
-                #    如果匹配到的动作是“再见”，则设置停止监听的标志
                 if action_name == "再见":
                     logger.info("检测到'再见'动作，将在本次对话后停止监听。")
                     self._set_keep_listening(False)
+                # 5. 执行匹配到的通用机器人动作（例如挥手、敬礼等）
+                #    使用create_task使其在后台运行，不阻塞当前流程
+                asyncio.create_task(self.execute_robot_actions([action_name]))
+                logger.info("关键词已在本地处理，发送中止信号以取消服务器的TTS响应")
+                if action_name != "再见":
+                    asyncio.create_task(self.abort_speaking(AbortReason.NONE))       
+                return
             
-
+            self.set_chat_message("user", text)
 
     async def _handle_llm_message(self, data):
         """

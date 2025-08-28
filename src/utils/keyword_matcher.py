@@ -1,5 +1,8 @@
 import re
 from typing import Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 class KeywordMatcher:
     def __init__(self, cfg: Dict[str, dict]):
@@ -12,7 +15,11 @@ class KeywordMatcher:
         # 2) 生成一次性正则：\b(握手|握个手|招手|再见|拜拜|结束|终止监听)\b
         #    加\b是为了整词匹配，避免“再见到”被误触发
         escaped = [re.escape(k) for k in self._kw2key]
-        self._pattern = re.compile(r'\b(' + '|'.join(escaped) + r')\b')
+        if escaped:
+            self._pattern = re.compile('|'.join(escaped))
+        else:
+            self._pattern = None # 处理没有关键词的边界情况
+        logger.info(f"初始化关键词匹配器完毕，关键词数量: {len(self._kw2key)}")
 
     def first_hit(self, text: str):
         """返回 (主键, 命中的关键词) 或 None"""
