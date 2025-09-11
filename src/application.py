@@ -1,5 +1,6 @@
 import asyncio
 import json
+from re import sub
 import signal
 import subprocess
 import sys
@@ -143,6 +144,9 @@ class Application:
         mode = kwargs.get("mode", "gui")
         protocol = kwargs.get("protocol", "websocket")
         
+        # 举起麦克风
+        # subprocess.run("ros2 run interface_example joint_test_example /joint_test_hold.yaml", shell=True, check=True)
+
         # 设置ROS发布器
         self.ros_publisher = kwargs.get("ros_publisher")
         if self.ros_publisher:
@@ -657,18 +661,7 @@ class Application:
 
         try:
             await self.protocol.send_abort_speaking(reason)
-            # 检查是否是由动作唤醒触发的中止
-            if self.is_action_awake:
-                # 如果是，则返回聆听状态
-                logger.debug("动作唤醒中止，将返回聆听状态")
-                await self.protocol.send_start_listening(ListeningMode.AUTO_STOP)
-                await self._set_device_state(DeviceState.LISTENING)
-                # !! 重要：使用后务必重置标志位，避免影响下一次中止 !!
-                self.is_action_awake = False
-            else:
-                # 如果不是（例如用户按键打断），则执行默认逻辑，回到待命状态
-                logger.debug("常规中止，将返回待命状态")
-                await self._set_device_state(DeviceState.IDLE)
+            await self._set_device_state(DeviceState.IDLE)
             self.aborted = False
             if (
                 reason == AbortReason.WAKE_WORD_DETECTED
@@ -744,6 +737,8 @@ class Application:
                 await self._handle_listening_state()
             elif state == DeviceState.SPEAKING:
                 self._update_display_async(self.display.update_status, "说话中...")
+            elif state == DeviceState.ACTING: # <-- 新增的处理分支
+                await self._handle_action_state()
 
     async def _handle_idle_state(self):
         """
@@ -767,6 +762,23 @@ class Application:
 
         # 更新IoT状态
         await self._update_iot_states(True)
+
+    async def _handle_action_state(self):
+        """
+        处理进入ACTION状态的逻辑.
+        """
+        # 更新UI显示
+        self._update_display_async(self.display.update_status, "执行动作中...")
+
+        # 发送中止信号，阻止服务器的LLM响应
+        logger.info("进入ACTION状态，发送中止信号到服务器")
+        await self.protocol.send_abort_speaking(AbortReason.NONE)
+        # 切换到IDLE状态
+        await self._set_device_state(DeviceState.IDLE)
+
+        # 清空可能存在的音频缓冲区
+        if self.audio_codec:
+            await self.audio_codec.clear_audio_queue()
 
     async def _send_text_tts(self, text):
         """
@@ -886,14 +898,19 @@ class Application:
 
             try:
                 logger.info(f"开始执行动作: '{action_name}'")
-
+                async def play_audio_with_delay(cmd, delay):
+                    # 等待一个短暂的延迟，给ROS节点启动时间
+                    await asyncio.sleep(delay)
+                    logger.info(f"延迟结束后，开始播放音频: {cmd}")
+                    # 在单独的线程中运行音频播放，避免阻塞
+                    await asyncio.to_thread(subprocess.run, cmd, shell=True, check=False)
                 # 音频播放任务并行执行，不受影响
-                if audio_cmd and action_name != "再见":
+                if audio_cmd:
                     logger.info(f"播放音频: {audio_cmd}")
-                    asyncio.create_task(
-                        asyncio.to_thread(subprocess.run, audio_cmd, shell=True, check=False),
-                        name=f"audio-{action_name}"
-                    )
+                    # 设定一个延迟时间，例如0.5秒，您可能需要根据实际情况微调
+                    delay_seconds = 3
+                    logger.info(f"音频任务已创建，将延迟 {delay_seconds} 秒后播放")
+                    asyncio.create_task(play_audio_with_delay(audio_cmd, delay_seconds), name=f"audio-{action_name}")
 
                 # 路径1: 仅当动作是“拦截”时，处理'actions'列表
                 if action_name == "拦截":
@@ -922,6 +939,14 @@ class Application:
                 logger.error(f"机器人动作 '{action_name}' 执行失败: {e}")
             except Exception as e:
                 logger.error(f"执行动作 '{action_name}' 时发生未知错误: {e}", exc_info=True)
+            finally:
+                # 无论动作成功还是失败，最后都要恢复状态
+                logger.info(f"动作 '{action_name}' 流程结束，准备恢复状态...")
+                if self.keep_listening:
+                    await self.protocol.send_start_listening(ListeningMode.AUTO_STOP)
+                    await self._set_device_state(DeviceState.LISTENING)
+                else:
+                    await self._set_device_state(DeviceState.IDLE)
 
     async def _handle_tts_message(self, data):
         """
@@ -1000,18 +1025,14 @@ class Application:
             if match_result:
                 action_name, keyword = match_result
                 logger.info(f"匹配到关键词 '{keyword}' -> 执行动作 '{action_name}'")
-                # 3. 先设置标志位，告诉系统接下来要进行的是一个“动作唤醒”
-                self.is_action_awake = True
-                # 4. 根据动作名称处理特殊逻辑
-                if action_name == "再见":
-                    logger.info("检测到'再见'动作，将在本次对话后停止监听。")
-                    self._set_keep_listening(False)
-                # 5. 执行匹配到的通用机器人动作（例如挥手、敬礼等）
-                #    使用create_task使其在后台运行，不阻塞当前流程
+                # 3. 将状态设置为 ACTION。这将自动触发中止信号，并暂停监听。
+                await self._set_device_state(DeviceState.ACTING)
+                # 4. 创建后台任务执行机器人动作。
                 asyncio.create_task(self.execute_robot_actions([action_name]))
-                logger.info("关键词已在本地处理，发送中止信号以取消服务器的TTS响应")
-                if action_name != "再见":
-                    asyncio.create_task(self.abort_speaking(AbortReason.NONE))       
+                # 5. 根据动作名称处理特殊逻辑
+                if action_name == "再见":
+                    logger.info("检测到'再见'指令，将在本次对话后停止监听。")
+                    self._set_keep_listening(False)
                 return
             
             self.set_chat_message("user", text)

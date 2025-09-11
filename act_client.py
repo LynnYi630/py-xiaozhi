@@ -86,12 +86,12 @@ WAKE_CONFIG = {
     "USE_WAKE_WORD": True,
     "MODEL_PATH": "models/vosk-model-small-cn-0.22",
     "WAKE_WORDS": [
-        "小金小金",
-        "你好小金",
-        "小京小京",
-        "你好小京",
-        "你好小鸡",
-        "小鸡小鸡"], 
+        "小玛小玛",
+        "你好小玛",
+        "小妈小妈",
+        "你好小妈",
+        "你好小麻",
+        "小麻小麻"], 
     "SIMILARITY_THRESHOLD": 0.7,
     "MAX_EDIT_DISTANCE": 1
 }

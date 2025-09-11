@@ -12,8 +12,7 @@ class KeywordMatcher:
             for kw in item.get("keywords", []):
                 self._kw2key[kw] = key
 
-        # 2) 生成一次性正则：\b(握手|握个手|招手|再见|拜拜|结束|终止监听)\b
-        #    加\b是为了整词匹配，避免“再见到”被误触发
+        # 2) 生成正则表达式
         escaped = [re.escape(k) for k in self._kw2key]
         if escaped:
             self._pattern = re.compile('|'.join(escaped))

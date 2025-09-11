@@ -34,6 +34,7 @@ class DeviceState:
     CONNECTING = "connecting"
     LISTENING = "listening"
     SPEAKING = "speaking"
+    ACTING = "acting"
 
 
 class EventType:
