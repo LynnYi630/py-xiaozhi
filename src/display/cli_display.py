@@ -79,14 +79,7 @@ class CliDisplay(BaseDisplay):
         """
         启动异步CLI显示.
         """
-        print("\n=== 小智Ai命令行控制 ===")
-        print("可用命令：")
-        print("  r     - 开始/停止对话")
-        print("  x     - 打断当前对话")
-        print("  q     - 退出程序")
-        print("  h     - 显示此帮助信息")
-        print("  其他  - 发送文本消息")
-        print("============================\n")
+        self._print_help()
 
         # 启动命令处理任务
         command_task = asyncio.create_task(self._command_processor())
@@ -140,6 +133,16 @@ class CliDisplay(BaseDisplay):
         elif cmd == "x":
             if self.abort_callback:
                 await self.command_queue.put(self.abort_callback)
+        elif cmd == "s":
+            print("'s' pressed, simulating hang up button...")
+            try:
+                from src.mcp.tools.av_call import get_av_call_manager
+                manager = get_av_call_manager()
+                await manager.stop_stream() # 直接 await
+            except ImportError:
+                print("AVCallManager 未找到，请确保已正确初始化。")
+            except Exception as e:
+                print(f"执行 hang up 命令时出错: {e}")
         else:
             if self.send_text_callback:
                 await self.send_text_callback(cmd)
@@ -171,6 +174,7 @@ class CliDisplay(BaseDisplay):
         print("  r     - 开始/停止对话")
         print("  x     - 打断当前对话")
         print("  q     - 退出程序")
+        print("  s     - 挂断视频电话")
         print("  h     - 显示此帮助信息")
         print("  其他  - 发送文本消息")
         print("============================\n")

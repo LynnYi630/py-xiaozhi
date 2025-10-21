@@ -22,6 +22,8 @@ class KeywordMatcher:
 
     def first_hit(self, text: str):
         """返回 (主键, 命中的关键词) 或 None"""
+        if not self._pattern:
+            return None
         m = self._pattern.search(text)
         if not m:
             return None
