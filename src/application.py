@@ -8,6 +8,15 @@ import threading
 import random
 from typing import Set
 
+try:
+    import rclpy
+    from rclpy.node import Node
+    # ----------------- 优化点 1: 导入Bool消息类型 -----------------
+    from std_msgs.msg import String, Bool
+    ROS_AVAILABLE = True
+except ImportError:
+    ROS_AVAILABLE = False
+
 from src.constants.constants import AbortReason, DeviceState, ListeningMode
 from src.display import gui_display
 from src.mcp.mcp_server import McpServer
@@ -85,6 +94,10 @@ class Application:
         # 配置管理
         self.config = ConfigManager.get_instance()
 
+        # --- 修改__init__以包含ROS2成员变量 ---
+        self.ros_node = None
+        self.ros_thread = None
+
         # 状态管理
         self.device_state = DeviceState.IDLE
         self.voice_detected = False
@@ -146,13 +159,6 @@ class Application:
         
         # 举起麦克风
         # subprocess.run("ros2 run interface_example joint_test_example /joint_test_hold.yaml", shell=True, check=True)
-
-        # 设置ROS发布器
-        self.ros_publisher = kwargs.get("ros_publisher")
-        if self.ros_publisher:
-            logger.info("ROS2发布器已设置")
-        else:
-            logger.info("未提供ROS2发布器，将跳过ROS2消息发布")
 
         if mode == "gui":
             # GUI模式：需要创建Qt应用和qasync事件循环
@@ -290,6 +296,9 @@ class Application:
         """
         logger.info("正在初始化应用程序组件...")
 
+        # --- 新增：初始化ROS2 ---
+        self._initialize_ros2()
+
         # 设置显示类型（必须在设备状态设置之前）
         self._set_display_type(mode)
 
@@ -328,6 +337,35 @@ class Application:
 
         logger.info("应用程序组件初始化完成")
 
+        # --- 请确保有下面这段代码 ---
+        # 等待1秒，以确保ROS2的DDS网络发现有足够的时间完成
+        # 从而避免第一条唤醒消息因连接尚未建立而丢失
+        logger.info("等待1秒以确保网络服务（如ROS2）完全就绪...")
+        await asyncio.sleep(1)
+
+        logger.info("应用程序组件初始化完成")
+
+    def _initialize_ros2(self):
+        if not ROS_AVAILABLE:
+            logger.warning("ROS2库未安装，将跳过ROS2功能。")
+            return
+        try:
+            class _AudioControlNode(Node):
+                def __init__(self):
+                    super().__init__('audio_control_node_in_app')
+                    # ----------------- 优化点 2: 将发布者类型改为Bool -----------------
+                    self.publisher = self.create_publisher(Bool, '/xiaozhi/listening_state', 10)
+            
+            if not rclpy.ok():
+                rclpy.init()
+            self.ros_node = _AudioControlNode()
+            self.ros_thread = threading.Thread(target=rclpy.spin, args=(self.ros_node,), daemon=True)
+            self.ros_thread.start()
+            logger.info("✅ ROS2节点已在Application内部初始化并开始运行。")
+        except Exception as e:
+            logger.error(f"在Application内部初始化ROS2失败: {e}", exc_info=True)
+            self.ros_node = None
+            
     async def _initialize_keyword_matcher(self):
         """
         初始化关键词匹配器.
@@ -687,34 +725,27 @@ class Application:
         if self.display:
             asyncio.create_task(update_func(*args))
 
-    def _publish_ros_message(self, message: str):
-        """
-        发布ROS2消息的辅助方法.
-        """
-        if self.ros_publisher:
+    # ----------------- 优化点 3: 修改方法以接受布尔值 -----------------
+    def _publish_ros_message(self, state: bool):
+        if self.ros_node:
             try:
-                # 导入ROS2消息类型
-                try:
-                    from std_msgs.msg import String
-                    msg = String()
-                    msg.data = message
-                    self.ros_publisher.publisher.publish(msg)
-                    logger.info(f"已发布ROS2消息: {message}")
-                except ImportError:
-                    logger.warning("ROS2库未安装，跳过消息发布")
+                msg = Bool()
+                msg.data = state
+                self.ros_node.publisher.publish(msg)
+                logger.info(f"已发布ROS2消息 /xiaozhi/listening_state: {state}")
             except Exception as e:
-                logger.error(f"发布ROS2消息失败: {e}")
+                logger.error(f"发布ROS2消息失败: {e}", exc_info=True)
 
+    # ----------------- 优化点 4: 发布布尔值而不是字符串 -----------------
     def _set_keep_listening(self, value: bool):
         """
         设置keep_listening状态并发布ROS消息.
         """
         if self.keep_listening != value:
             self.keep_listening = value
-            if value:
-                self._publish_ros_message("wake_word_detected")
-            else:
-                self._publish_ros_message("conversation_ended")
+            # 当keep_listening为True时，表示唤醒并开始监听，发布True
+            # 当keep_listening为False时，表示对话结束，发布False
+            self._publish_ros_message(value)
             logger.info(f"keep_listening状态变更为: {value}")
 
     async def _set_device_state_impl(self, state):
@@ -1221,77 +1252,52 @@ class Application:
 
     async def shutdown(self):
         """
-        关闭应用程序.
+        关闭应用程序。此方法现在是幂等的，并处理所有清理工作。
         """
+        # 使用 self.running 标志作为锁，确保关闭逻辑只执行一次
         if not self.running:
             return
-
-        logger.info("正在关闭应用程序...")
+        
+        # 立即设置 running 为 False，以防止重入并终止主循环
         self.running = False
-
-        # 设置关闭事件
-        if self._shutdown_event is not None:
-            self._shutdown_event.set()
-
+        
+        logger.info("正在关闭应用程序...")
+        
         try:
-            # 2. 关闭唤醒词检测器
-            await self._safe_close_resource(
-                self.wake_word_detector, "唤醒词检测器", "stop"
-            )
-
-            # 3. 取消所有长期任务
-            if self._main_tasks:
-                logger.info(f"取消 {len(self._main_tasks)} 个主要任务")
-                tasks = list(self._main_tasks)
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-
+            
+            #  清理应用本身的核心组件
+            await self._safe_close_resource(self.wake_word_detector, "唤醒词检测器", "stop")
+            
+            tasks = list(self._main_tasks)
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
                 try:
-                    # 等待任务取消完成
                     await asyncio.wait(tasks, timeout=2.0)
                 except asyncio.TimeoutError:
                     logger.warning("部分任务取消超时")
-                except Exception as e:
-                    logger.warning(f"等待任务完成时出错: {e}")
-
-                self._main_tasks.clear()
-
-            # 4. 关闭协议连接
+            
             if self.protocol:
-                try:
-                    await self.protocol.close_audio_channel()
-                    logger.info("协议连接已关闭")
-                except Exception as e:
-                    logger.error(f"关闭协议连接失败: {e}")
-
-            # 5. 关闭音频设备
+                await self.protocol.close_audio_channel()
+            
             await self._safe_close_resource(self.audio_codec, "音频设备")
-
-            # 6. 关闭MCP服务器
             await self._safe_close_resource(self.mcp_server, "MCP服务器")
-
-            # 7. 清理队列
-            try:
-                for q in [
-                    self.command_queue,
-                ]:
-                    while not q.empty():
-                        try:
-                            q.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
-                logger.info("队列已清空")
-            except Exception as e:
-                logger.error(f"清空队列失败: {e}")
-
-            # 8. 最后停止UI显示
             await self._safe_close_resource(self.display, "显示界面")
-
-            logger.info("应用程序关闭完成")
+            logger.info("应用程序核心组件关闭完成。")
 
         except Exception as e:
-            logger.error(f"关闭应用程序时出错: {e}", exc_info=True)
+            logger.error(f"关闭应用程序核心组件时出错: {e}", exc_info=True)
+        
+        finally:
+            #  最后，在所有事情都完成后，安全地关闭ROS2
+            if ROS_AVAILABLE and self.ros_node and rclpy.ok():
+                logger.info("正在清理ROS2资源...")
+                self.ros_node.destroy_node()
+                rclpy.shutdown()
+                logger.info("ROS2资源已清理。")
+            
+            logger.info("应用程序关闭流程完全结束。")
 
     def _initialize_mcp_server(self):
         """
