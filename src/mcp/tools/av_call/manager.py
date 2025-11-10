@@ -35,6 +35,8 @@ class AVCallManager:
         self.current_process_id: Optional[str] = None
         self.mcp_server = None
         self.is_stopping_manually = False
+        # 添加对Application实例的引用
+        self.app = None
 
         script_relative_path = os.path.join("scripts", "start_call.sh")
         script_path_obj: Optional[Path] = find_file(script_relative_path)
@@ -57,6 +59,12 @@ class AVCallManager:
         self.mcp_server = mcp_server
         create_tools(add_tool_func, property_list_class, property_class, property_type_enum)
 
+    def set_app_instance(self, app):
+        """
+        设置Application实例的引用
+        """
+        self.app = app
+
     async def _on_stream_process_exit(self, process_id_str: str):
         """当推流脚本进程结束时的回调"""
         if self.current_process_id != process_id_str:
@@ -67,6 +75,13 @@ class AVCallManager:
         original_state = self.state
         self.state = StreamState.IDLE
         self.current_process_id = None
+
+        # 视频通话结束后，将设备状态切换回LISTENING
+        if self.app:
+            logger.info("【AVCallManager】: 视频通话结束，将设备状态切换回LISTENING")
+            await self.app._set_device_state(DeviceState.LISTENING)
+        else:
+            logger.warning("【AVCallManager】: Application实例未设置，无法切换设备状态")
 
         if not self.is_stopping_manually and original_state == StreamState.STREAMING:
             if self.mcp_server and hasattr(self.mcp_server, '_send_callback') and self.mcp_server._send_callback:
@@ -100,6 +115,14 @@ class AVCallManager:
             self.current_process_id = await self.stream_service.start_stream()
             self.state = StreamState.STREAMING
             logger.info(f"【AVCallManager】: 推流已启动，进程ID: {self.current_process_id}")
+            
+            # 开始视频通话时，将设备状态设置为IDLE
+            if self.app:
+                logger.info("【AVCallManager】: 视频通话开始，将设备状态设置为IDLE")
+                await self.app._set_device_state(DeviceState.IDLE)
+            else:
+                logger.warning("【AVCallManager】: Application实例未设置，无法切换设备状态")
+                
             return "已开启视频通话，请等待后台人员连接。"
         except FileNotFoundError as e:
             logger.error(f"【AVCallManager】: 启动失败，脚本文件未找到: {e}")

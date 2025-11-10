@@ -1310,6 +1310,15 @@ class Application:
         # 添加通用工具
         self.mcp_server.add_common_tools()
 
+        # 为AVCallManager设置Application实例引用
+        try:
+            from src.mcp.tools.av_call.manager import get_av_call_manager
+            av_call_manager = get_av_call_manager()
+            av_call_manager.set_app_instance(self)
+            logger.info("已将Application实例注入AVCallManager")
+        except Exception as e:
+            logger.error(f"注入Application实例到AVCallManager失败: {e}")
+
     async def _handle_mcp_message(self, data):
         """
         处理MCP消息.
