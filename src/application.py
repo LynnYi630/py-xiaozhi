@@ -736,16 +736,15 @@ class Application:
             except Exception as e:
                 logger.error(f"发布ROS2消息失败: {e}", exc_info=True)
 
-    # ----------------- 优化点 4: 发布布尔值而不是字符串 -----------------
     def _set_keep_listening(self, value: bool):
         """
-        设置keep_listening状态并发布ROS消息.
+        设置keep_listening状态. (已移除ROS发布，由_set_device_state_impl统一处理)
         """
         if self.keep_listening != value:
             self.keep_listening = value
-            # 当keep_listening为True时，表示唤醒并开始监听，发布True
-            # 当keep_listening为False时，表示对话结束，发布False
+
             self._publish_ros_message(value)
+
             logger.info(f"keep_listening状态变更为: {value}")
 
     async def _set_device_state_impl(self, state):
