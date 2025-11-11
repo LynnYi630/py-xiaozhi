@@ -254,6 +254,14 @@ class McpServer:
         original_tools = self.tools.copy()
         self.tools.clear()
 
+        try:
+            from src.mcp.tools.robot_action.manager import get_robot_action_manager
+            robot_action_manager = get_robot_action_manager()
+            robot_action_manager.init_tools(self.add_tool, PropertyList, Property, PropertyType)
+            logger.info("[MCP Server] 成功加载机器人动作工具")
+        except ImportError as e:
+            logger.error(f"[MCP Server] 无法加载机器人动作工具: {e}", exc_info=True)
+
         # 添加访客管理工具
         # 1. 导入新的VisitorManager
         from src.mcp.tools.visitor_management.manager import get_visitor_manager

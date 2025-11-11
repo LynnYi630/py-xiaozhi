@@ -26,7 +26,7 @@ from src.utils.common_utils import handle_verification_code
 from src.utils.config_manager import ConfigManager
 from src.utils.logging_config import get_logger
 from src.utils.opus_loader import setup_opus
-from src.utils.keyword_matcher import KeywordMatcher
+# from src.utils.keyword_matcher import KeywordMatcher
 
 # 忽略SIGTRAP信号
 try:
@@ -105,8 +105,8 @@ class Application:
         self.aborted = False
         self.is_action_awake = False
 
-        # 关键词匹配器
-        self.keyword_matcher = None
+        # # 关键词匹配器
+        # self.keyword_matcher = None
 
         # ROS发布器
         self.ros_publisher = None
@@ -320,8 +320,8 @@ class Application:
         # 初始化唤醒词检测
         await self._initialize_wake_word_detector()
 
-        # 初始化关键词匹配器
-        await self._initialize_keyword_matcher()
+        # # 初始化关键词匹配器
+        # await self._initialize_keyword_matcher()
 
         # 设置协议回调
         self._setup_protocol_callbacks()
@@ -366,19 +366,19 @@ class Application:
             logger.error(f"在Application内部初始化ROS2失败: {e}", exc_info=True)
             self.ros_node = None
             
-    async def _initialize_keyword_matcher(self):
-        """
-        初始化关键词匹配器.
-        """
-        try:
-            actions_config = self.config.get_config("ACTIONS", {})
-            self.keyword_matcher = KeywordMatcher(actions_config)
-            logger.info("关键词匹配器初始化成功")
+    # async def _initialize_keyword_matcher(self):
+    #     """
+    #     初始化关键词匹配器.
+    #     """
+    #     try:
+    #         actions_config = self.config.get_config("ACTIONS", {})
+    #         self.keyword_matcher = KeywordMatcher(actions_config)
+    #         logger.info("关键词匹配器初始化成功")
 
-        except Exception as e:
-            logger.error("初始化关键词匹配器失败: %s", e, exc_info=True)
-            # 确保初始化失败时keyword_matcher为None
-            self.keyword_matcher = None
+    #     except Exception as e:
+    #         logger.error("初始化关键词匹配器失败: %s", e, exc_info=True)
+    #         # 确保初始化失败时keyword_matcher为None
+    #         self.keyword_matcher = None
 
 
     async def _initialize_audio(self):
@@ -1043,27 +1043,27 @@ class Application:
         text = data.get("text", "")
         if text:
             logger.info(f">> {text}")
-            # 检查匹配器是否已成功初始化
-            if not self.keyword_matcher:
-                logger.error("关键词匹配器未初始化")
-                return
+            # # 检查匹配器是否已成功初始化
+            # if not self.keyword_matcher:
+            #     logger.error("关键词匹配器未初始化")
+            #     return
 
-            # 1. 使用KeywordMatcher在文本中查找第一个匹配的关键词
-            match_result = self.keyword_matcher.first_hit(text)
+            # # 1. 使用KeywordMatcher在文本中查找第一个匹配的关键词
+            # match_result = self.keyword_matcher.first_hit(text)
 
-            # 2. 如果找到了匹配项
-            if match_result:
-                action_name, keyword = match_result
-                logger.info(f"匹配到关键词 '{keyword}' -> 执行动作 '{action_name}'")
-                # 3. 将状态设置为 ACTION。这将自动触发中止信号，并暂停监听。
-                await self._set_device_state(DeviceState.ACTING)
-                # 4. 创建后台任务执行机器人动作。
-                asyncio.create_task(self.execute_robot_actions([action_name]))
-                # 5. 根据动作名称处理特殊逻辑
-                if action_name == "再见":
-                    logger.info("检测到'再见'指令，将在本次对话后停止监听。")
-                    self._set_keep_listening(False)
-                return
+            # # 2. 如果找到了匹配项
+            # if match_result:
+            #     action_name, keyword = match_result
+            #     logger.info(f"匹配到关键词 '{keyword}' -> 执行动作 '{action_name}'")
+            #     # 3. 将状态设置为 ACTION。这将自动触发中止信号，并暂停监听。
+            #     await self._set_device_state(DeviceState.ACTING)
+            #     # 4. 创建后台任务执行机器人动作。
+            #     asyncio.create_task(self.execute_robot_actions([action_name]))
+            #     # 5. 根据动作名称处理特殊逻辑
+            #     if action_name == "再见":
+            #         logger.info("检测到'再见'指令，将在本次对话后停止监听。")
+            #         self._set_keep_listening(False)
+            #     return
             
             self.set_chat_message("user", text)
 
