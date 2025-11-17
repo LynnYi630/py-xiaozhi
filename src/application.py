@@ -17,6 +17,13 @@ try:
 except ImportError:
     ROS_AVAILABLE = False
 
+try:
+    from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
+except ImportError:
+    logger.warning("Unitree G1 AudioClient 未找到，音频播放将不可用。")
+    AudioClient = None
+
+from src.services.unitree_vui_service import UnitreeVuiService
 from src.constants.constants import AbortReason, DeviceState, ListeningMode
 from src.display import gui_display
 from src.mcp.mcp_server import McpServer
@@ -108,6 +115,10 @@ class Application:
         # 关键词匹配器
         self.keyword_matcher = None
 
+        # 宇树组件
+        self.unitree_audio_client = None # <--- G1 音频播放客户端
+        self.unitree_vui_service = None  # <--- G1 唤醒和ASR服务
+
         # ROS发布器
         self.ros_publisher = None
 
@@ -156,6 +167,26 @@ class Application:
 
         mode = kwargs.get("mode", "gui")
         protocol = kwargs.get("protocol", "websocket")
+
+        network_interface = kwargs.get("network_interface")
+
+        # --- BEGIN: 宇树 G1 AudioClient 初始化 ---
+        if AudioClient:
+            try:
+                logger.info("正在初始化 Unitree G1 AudioClient...")
+                # 注意: ChannelFactoryInitialize 已经在 main.py 中调用
+                self.unitree_audio_client = AudioClient()
+                self.unitree_audio_client.SetTimeout(10.0)
+                # Init() 是一个阻塞调用，必须在异步上下文中使用 to_thread
+                await asyncio.to_thread(self.unitree_audio_client.Init)
+                logger.info("Unitree G1 AudioClient 初始化成功。")
+            except Exception as e:
+                logger.error(f"Unitree G1 AudioClient Init 失败: {e}", exc_info=True)
+                self.unitree_audio_client = None
+        else:
+            logger.error("无法启动，因为 Unitree AudioClient 未加载。")
+            return 1
+        # --- END: 宇树 G1 AudioClient 初始化 ---
         
         # 举起麦克风
         # subprocess.run("ros2 run interface_example joint_test_example /joint_test_hold.yaml", shell=True, check=True)
@@ -265,6 +296,10 @@ class Application:
             # 启动核心任务
             await self._start_core_tasks()
 
+            # 启动 Unitree VUI 服务
+            if self.unitree_vui_service:
+                self.unitree_vui_service.start()
+
             # 启动显示界面
             if mode == "gui":
                 await self._start_gui_display()
@@ -312,13 +347,16 @@ class Application:
         await self._initialize_iot_devices()
 
         # 初始化音频编解码器
-        await self._initialize_audio()
+        await self._initialize_audio(self.unitree_audio_client)
+
+        # 初始化 Unitree VUI (DDS) 服务
+        self.unitree_vui_service = UnitreeVuiService(self)
 
         # 设置协议
         self._set_protocol_type(protocol)
 
-        # 初始化唤醒词检测
-        await self._initialize_wake_word_detector()
+        # 初始化唤醒词检测（宇树模式下禁用）
+        # await self._initialize_wake_word_detector()
 
         # 初始化关键词匹配器
         await self._initialize_keyword_matcher()
@@ -404,25 +442,24 @@ class Application:
 
     def _on_encoded_audio(self, encoded_data: bytes):
         """
-        处理编码后的音频数据回调.
-        
-        注意：这个回调在音频驱动线程中被调用，需要线程安全地调度到主事件循环。
+        G1 模式下禁用: 我们不发送编码音频。
         """
-        try:
-            # 只在监听状态且音频通道打开时发送数据
-            if (self.device_state == DeviceState.LISTENING 
-                    and self.protocol 
-                    and self.protocol.is_audio_channel_opened()
-                    and not getattr(self, '_transitioning', False)):
+        return
+        # try:
+        #     # 只在监听状态且音频通道打开时发送数据
+        #     if (self.device_state == DeviceState.LISTENING 
+        #             and self.protocol 
+        #             and self.protocol.is_audio_channel_opened()
+        #             and not getattr(self, '_transitioning', False)):
                 
-                # 线程安全地调度到主事件循环
-                if self._main_loop and not self._main_loop.is_closed():
-                    self._main_loop.call_soon_threadsafe(
-                        self._schedule_audio_send, encoded_data
-                    )
+        #         # 线程安全地调度到主事件循环
+        #         if self._main_loop and not self._main_loop.is_closed():
+        #             self._main_loop.call_soon_threadsafe(
+        #                 self._schedule_audio_send, encoded_data
+        #             )
                 
-        except Exception as e:
-            logger.error(f"处理编码音频数据回调失败: {e}")
+        # except Exception as e:
+        #     logger.error(f"处理编码音频数据回调失败: {e}")
 
     def _schedule_audio_send(self, encoded_data: bytes):
         """
@@ -614,32 +651,22 @@ class Application:
 
     async def _start_listening_common(self, listening_mode, keep_listening_flag):
         """
-        通用的开始监听逻辑.
+        G1 模式下禁用: 交互必须由 G1 唤醒词发起。
         """
-        async with self._state_lock:
-            if self.device_state != DeviceState.IDLE:
-                return False
+        logger.warning("G1 模式: '按住说话' / '自动聊天' 按钮被禁用。请使用 G1 唤醒词。")
+        # 我们可以设置表情来提示用户
+        self.set_emotion("neutral")
+        self._update_display_async(self.display.update_status, "请用唤醒词")
+        await asyncio.sleep(1.0)
+        if self.device_state == DeviceState.IDLE:
+             self._update_display_async(self.display.update_status, "待命")
+        return False # <--- 必须返回 False
 
-        if not self.protocol.is_audio_channel_opened():
-            success = await self.protocol.open_audio_channel()
-            if not success:
-                return False
-
-        if self.audio_codec:
-            await self.audio_codec.clear_audio_queue()
-
-        await self._set_device_state(DeviceState.CONNECTING)
-
-        self._set_keep_listening(keep_listening_flag)
-        await self.protocol.send_start_listening(listening_mode)
-        await self._set_device_state(DeviceState.LISTENING)
-        return True
-
-    async def start_listening(self):
-        """
-        开始监听.
-        """
-        await self.schedule_command(self._start_listening_impl)
+        async def start_listening(self):
+            """
+            开始监听.
+            """
+            await self.schedule_command(self._start_listening_impl)
 
     async def _start_listening_impl(self):
         """
@@ -701,13 +728,24 @@ class Application:
             await self.protocol.send_abort_speaking(reason)
             await self._set_device_state(DeviceState.IDLE)
             self.aborted = False
+            # --- BEGIN: G1 唤醒打断处理 ---
             if (
                 reason == AbortReason.WAKE_WORD_DETECTED
-                and self.keep_listening
-                and self.protocol.is_audio_channel_opened()
             ):
-                await asyncio.sleep(0.1)
-                await self.toggle_chat_state()
+                logger.info("G1 模式: 唤醒打断完成，立即重新触发唤醒流程")
+                # 重新触发唤醒流程，而不是等待 toggle_chat_state
+                # 因为 G1 唤醒已经发生
+                await asyncio.sleep(0.1) # 短暂等待
+                # 假装我们刚收到唤醒词 "唤醒"
+                await self._on_unitree_wake_word_detected("唤醒") 
+        # --- END: G1 唤醒打断处理 ---
+            # if (
+            #     reason == AbortReason.WAKE_WORD_DETECTED
+            #     and self.keep_listening
+            #     and self.protocol.is_audio_channel_opened()
+            # ):
+            #     await asyncio.sleep(0.1)
+            #     await self.toggle_chat_state()
 
         except Exception as e:
             logger.error(f"中止语音时出错: {e}")
@@ -1125,41 +1163,135 @@ class Application:
             logger.error(f"初始化唤醒词检测器失败: {e}")
             self.wake_word_detector = None
 
-    async def _on_wake_word_detected(self, wake_word, full_text):
+    async def _on_unitree_wake_word_detected(self, wake_word: str):
         """
-        唤醒词检测回调.
+        [G1 模式] 由 UnitreeVuiService 线程在检测到唤醒词时调用。
         """
-        logger.info(f"检测到唤醒词: {wake_word}")
-        # 
-        if self.device_state == DeviceState.IDLE:
-            await self._set_device_state(DeviceState.CONNECTING)
-            await self._connect_and_start_listening(wake_word)
-        # elif self.device_state == DeviceState.SPEAKING:
-        #     await self.abort_speaking(AbortReason.WAKE_WORD_DETECTED)
+        logger.info(f"Unitree 唤醒词 '{wake_word}' 已处理")
 
-    async def _connect_and_start_listening(self, wake_word):
-        """
-        连接服务器并开始监听.
-        """
+        # 1. 检查状态
+        if self.device_state == DeviceState.SPEAKING:
+            # 如果机器人在说话时被唤醒，执行打断
+            logger.info("G1 唤醒打断: 正在中止当前 TTS...")
+            await self.abort_speaking(AbortReason.WAKE_WORD_DETECTED)
+            # abort_speaking 会自动处理状态转换，我们稍后会再次收到唤醒
+            # *修正*: abort_speaking 不会重新触发唤醒。我们需要在中止后立即继续。
+            # ... 见下文的 AbortReason 处理
+            return
+
+        if self.device_state != DeviceState.IDLE:
+            logger.warning(f"在 {self.device_state} 状态收到唤醒, 忽略。")
+            return
+
+        # 2. 状态切换到 CONNECTING
+        await self._set_device_state(DeviceState.CONNECTING)
+    
+        # 3. 简化的连接流程
         try:
-            if not await self.protocol.connect():
-                logger.error("连接服务器失败")
-                await self._set_device_state(DeviceState.IDLE)
-                return
-
-            if not await self.protocol.open_audio_channel():
-                logger.error("打开音频通道失败")
-                await self._set_device_state(DeviceState.IDLE)
-                return
-
-            await self.protocol.send_wake_word_detected("唤醒")
-            self._set_keep_listening(True)
-            await self.protocol.send_start_listening(ListeningMode.AUTO_STOP)
+            # 确保与 xiaozhi 服务器的 WebSocket 连接
+            if not (self.protocol and self.protocol.is_connected()):
+                 if not await self.protocol.connect():
+                    logger.error("连接 xiaozhi 服务器失败")
+                    await self._set_device_state(DeviceState.IDLE)
+                    return
+    
+            # 确保音频通道打开 (为了接收TTS)
+            if not self.protocol.is_audio_channel_opened():
+                if not await self.protocol.open_audio_channel():
+                    logger.error("打开 xiaozhi 音频通道失败")
+                    await self._set_device_state(DeviceState.IDLE)
+                    return
+    
+            # 4. 设置状态
+            # 我们不再 "LISTENING" (发送音频)
+            # 我们的 "LISTENING" 状态现在意味着 "等待 G1 ASR 文本"
+            logger.info("Unitree 已唤醒. 正在等待 G1 ASR 文本...")
+            self._set_keep_listening(True) # 关键: 保持对话模式
             await self._set_device_state(DeviceState.LISTENING)
-
+            # (UI 会自动更新为 "聆听中...")
+    
         except Exception as e:
-            logger.error(f"连接和启动监听失败: {e}")
+            logger.error(f"Unitree 唤醒后启动失败: {e}", exc_info=True)
             await self._set_device_state(DeviceState.IDLE)
+
+    async def _on_unitree_asr_received(self, text: str):
+        """
+        [G1 模式] 由 UnitreeVuiService 线程在收到 ASR 结果时调用。
+        """
+        # 只有在 "聆听" (等待ASR) 状态时才处理
+        if self.device_state != DeviceState.LISTENING:
+            logger.warning(f"在 {self.device_state} 状态收到 ASR 文本, 忽略: {text}")
+            return
+    
+        logger.info(f"Unitree ASR 结果: '{text}'")
+    
+        # 1. 更新UI
+        self.set_chat_message("user", text)
+    
+        # 2. 检查本地关键词 (例如 "再见", "拍照")
+        if self.keyword_matcher:
+            match_result = self.keyword_matcher.first_hit(text)
+            if match_result:
+                action_name, keyword = match_result
+                logger.info(f"匹配到本地关键词 '{keyword}' -> 执行动作 '{action_name}'")
+    
+                # 切换到 ACTION 状态，这将自动中止服务器的任何响应
+                await self._set_device_state(DeviceState.ACTING) 
+    
+                # 创建后台任务执行机器人动作
+                asyncio.create_task(self.execute_robot_actions([action_name]))
+    
+                # 处理 "再见"
+                if action_name == "再见":
+                    logger.info("检测到'再见'指令，将在本次对话后停止监听。")
+                    self._set_keep_listening(False)
+                return # 不将此文本发送给 LLM
+    
+        # 3. 将文本 *直接发送给小智服务器的LLM*
+        # 我们使用 send_wake_word_detected，因为它会触发LLM，
+        # 模拟了 "音频流结束，STT完成" 的效果。
+        logger.info(f"将 ASR 文本发送到 xiaozhi LLM: {text}")
+        await self.protocol.send_wake_word_detected(text)
+    
+        # 4. 转换到 IDLE 状态, 等待服务器的 TTS 响应
+        # (当TTS开始时, 状态机会自动切换到 SPEAKING)
+        await self._set_device_state(DeviceState.IDLE)
+
+    # async def _on_wake_word_detected(self, wake_word, full_text):
+    #     """
+    #     唤醒词检测回调.
+    #     """
+    #     logger.info(f"检测到唤醒词: {wake_word}")
+    #     # 
+    #     if self.device_state == DeviceState.IDLE:
+    #         await self._set_device_state(DeviceState.CONNECTING)
+    #         await self._connect_and_start_listening(wake_word)
+    #     # elif self.device_state == DeviceState.SPEAKING:
+    #     #     await self.abort_speaking(AbortReason.WAKE_WORD_DETECTED)
+
+    # async def _connect_and_start_listening(self, wake_word):
+    #     """
+    #     连接服务器并开始监听.
+    #     """
+    #     try:
+    #         if not await self.protocol.connect():
+    #             logger.error("连接服务器失败")
+    #             await self._set_device_state(DeviceState.IDLE)
+    #             return
+
+    #         if not await self.protocol.open_audio_channel():
+    #             logger.error("打开音频通道失败")
+    #             await self._set_device_state(DeviceState.IDLE)
+    #             return
+
+    #         await self.protocol.send_wake_word_detected("唤醒")
+    #         self._set_keep_listening(True)
+    #         await self.protocol.send_start_listening(ListeningMode.AUTO_STOP)
+    #         await self._set_device_state(DeviceState.LISTENING)
+
+    #     except Exception as e:
+    #         logger.error(f"连接和启动监听失败: {e}")
+    #         await self._set_device_state(DeviceState.IDLE)
 
     def _handle_wake_word_error(self, error):
         """
@@ -1267,6 +1399,9 @@ class Application:
             
             #  清理应用本身的核心组件
             await self._safe_close_resource(self.wake_word_detector, "唤醒词检测器", "stop")
+
+            # G1: 关闭 VUI 服务
+            await self._safe_close_resource(self.unitree_vui_service, "Unitree VUI 服务", "stop")
             
             tasks = list(self._main_tasks)
             for task in tasks:

@@ -2,146 +2,33 @@ import argparse
 import asyncio
 import sys
 import time
+import argparse
 
-# # ROS2 imports
-# try:
-#     import rclpy
-#     from rclpy.node import Node
-#     from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
-#     from interface_protocol.msg import GamepadKeys
-#     import os
-#     from std_msgs.msg import String
-#     ROS_AVAILABLE = True
-    
-# except ImportError:
-#     print("警告: ROS2库未安装，将跳过ROS功能")
-#     ROS_AVAILABLE = False
+try:
+    from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+except ImportError:
+    print("错误: 未找到 unitree_sdk2py 库。")
+    print("请确保已在 py-xiaozhi 的环境中安装: pip install unitree_sdk2py")
+    sys.exit(1)
 
 from src.application import Application
 from src.utils.logging_config import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
-# # ROS2状态跟踪
-# _ros2_initialized = False
-# _ros2_shutdown = False
-
-
-# class XiaozhiROS2Node(Node):
-#     """小智AI客户端ROS2节点"""
-    
-#     def __init__(self):
-#         super().__init__('xiaozhi_ai_client')
-#         # 设置QoS策略，与C++版本保持一致
-#         qos_profile = QoSProfile(
-#             reliability=QoSReliabilityPolicy.BEST_EFFORT,
-#             durability=QoSDurabilityPolicy.VOLATILE,
-#             depth=3
-#         )
-
-#         # 创建订阅者，监听手柄按键状态消息
-#         self.gamepad_sub = self.create_subscription(
-#             GamepadKeys,
-#             '/hardware/gamepad_keys',
-#             self.gamepad_callback,
-#             qos_profile
-#         )
-#         # 创建发布器，发布到 /xiaozhi/listening_state 话题
-#         self.publisher = self.create_publisher(String, '/xiaozhi/listening_state', 10)
-#         self.get_logger().info('小智AI ROS2节点已初始化，话题: /xiaozhi/listening_state')
-
-# def gamepad_callback(self, msg):
-#         """
-#         订阅者回调函数，在收到手柄消息时被调用。
-#         """
-#         # 检查收到的消息中按键状态列表的长度是否足够
-#         if len(msg.digital_states) < 12:
-#             self.get_logger().warn(f"Received GamepadKeys message with only {len(msg.digital_states)} states, expected at least 12. Skipping.")
-#             return
-
-#         # --- 所有按键状态保留区 ---
-#         # 从消息中获取所有在 C++ 版本中定义的按键状态，确保完全对应
-#         lb_pressed = msg.digital_states[0]    # Left Bumper (在原始逻辑中未使用)
-#         rb_pressed = msg.digital_states[1]    # Right Bumper
-#         a_pressed = msg.digital_states[2]     # A按钮
-#         b_pressed = msg.digital_states[3]     # B按钮
-#         x_pressed = msg.digital_states[4]     # X按钮
-#         y_pressed = msg.digital_states[5]     # Y按钮
-#         back_pressed = msg.digital_states[6]  # Back按钮 (在原始逻辑中未使用)
-#         start_pressed = msg.digital_states[7] # Start按钮 (在原始逻辑中未使用)
-#         cross_x_up_pressed = msg.digital_states[8]   # 十字键上
-#         cross_x_down_pressed = msg.digital_states[9] # 十字键下
-#         cross_y_left_pressed = msg.digital_states[10] # 十字键左
-#         cross_y_right_pressed = msg.digital_states[11]# 十字键右
-#         # --- 按键状态读取结束 ---
-
-#         # --- 所有按键组合功能保留区 ---
-#         # 根据按键组合执行不同的命令，这部分逻辑与C++版本完全一致
-#         # RB + Y: 敬礼
-#         if rb_pressed and y_pressed:
-#             self._execute_command(self.joint_test_cmd, "/joint_test_salute.yaml", "RB + Y")
-        
-#         # --- 功能区结束 ---
-
-
-# def init_ros2_node():
-#     """
-#     初始化ROS2节点.
-#     """
-#     global _ros2_initialized, _ros2_shutdown
-    
-#     if not ROS_AVAILABLE:
-#         return None
-    
-#     try:
-#         if not _ros2_initialized:
-#             rclpy.init()
-#             _ros2_initialized = True
-#             _ros2_shutdown = False
-            
-#         node = XiaozhiROS2Node()
-#         logger.info("ROS2节点初始化成功，话题: /xiaozhi/listening_state")
-#         return node
-#     except Exception as e:
-#         logger.error(f"ROS2节点初始化失败: {e}")
-#         return None
-
-
-# def cleanup_ros2(ros_node=None):
-#     """
-#     安全清理ROS2资源
-#     """
-#     global _ros2_initialized, _ros2_shutdown
-    
-#     if not ROS_AVAILABLE or _ros2_shutdown:
-#         return
-    
-#     try:
-#         # 先销毁节点
-#         if ros_node:
-#             ros_node.destroy_node()
-#             logger.debug("ROS2节点已销毁")
-        
-#         # 再关闭rclpy，但只关闭一次
-#         if _ros2_initialized and not _ros2_shutdown:
-#             rclpy.shutdown()
-#             _ros2_shutdown = True
-#             logger.info("ROS2资源已清理")
-            
-#     except Exception as e:
-#         # 检查是否是重复关闭的错误
-#         if "rcl_shutdown already called" in str(e):
-#             logger.debug("ROS2已经关闭，跳过重复清理")
-#             _ros2_shutdown = True
-#         else:
-#             logger.error(f"清理ROS2资源时出错: {e}")
-
-
 def parse_args():
     """
     解析命令行参数.
     """
     parser = argparse.ArgumentParser(description="小智Ai客户端")
+    # 宇树SDK需要知道使用哪个网卡进行DDS通信 (例如 'eth0')
+    parser.add_argument(
+        "-i", 
+        "--interface", 
+        type=str, 
+        required=True, 
+        help="用于DDS通信的网络接口名称 (例如 'eth0')"
+    )
     parser.add_argument(
         "--mode",
         choices=["gui", "cli"],
@@ -301,6 +188,15 @@ async def main():
     setup_logging()
     args = parse_args()
 
+    try:
+        logger.info(f"正在使用网络接口 '{args.interface}' 初始化 Unitree SDK Channel...")
+        ChannelFactoryInitialize(0, args.interface)
+        logger.info("Unitree SDK Channel 初始化成功。")
+    except Exception as e:
+        logger.critical(f"Unitree SDK ChannelFactoryInitialize 失败: {e}", exc_info=True)
+        logger.critical("请确保网络接口名称正确且SDK已正确安装。")
+        return 1
+
     logger.info("启动小智AI客户端")
 
     # 处理激活流程
@@ -312,16 +208,10 @@ async def main():
     else:
         logger.warning("跳过激活流程（调试模式）")
 
-    # # 初始化ROS2节点
-    # ros_node = init_ros2_node()
-
     # 创建并启动应用程序
     app = Application.get_instance()
-    result = await app.run(mode=args.mode, protocol=args.protocol, ros_publisher=ros_node)
-    
-    # # 清理ROS2资源
-    # cleanup_ros2(ros_node)
-    
+    result = await app.run(mode=args.mode, protocol=args.protocol, ros_publisher=ros_node, network_interface=args.interface)
+
     return result
 
 
@@ -332,11 +222,6 @@ if __name__ == "__main__":
         sys.exit(exit_code)
     except KeyboardInterrupt:
         logger.info("程序被用户中断")
-        # # 清理ros2资源
-        # logger.info("正在清理ROS2资源")
-        # cleanup_ros2(ros_node)
-        # logger.info("ROS2资源清理完成")
-        # 确保应用程序实例被正确关闭
         app = Application.get_instance()
         if app:
             asyncio.run(app.shutdown())
@@ -347,5 +232,4 @@ if __name__ == "__main__":
         app = Application.get_instance()
         if app:
             asyncio.run(app.shutdown())
-        # cleanup_ros2(ros_node)
         sys.exit(1)
