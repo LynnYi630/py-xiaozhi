@@ -84,7 +84,7 @@ async def perform_handshake(args: Dict[str, Any]) -> str:
     
     # 2. 立即返回一个简单的字符串给 LLM
     # LLM 会收到这个消息，解除阻塞，并可以开始说 "你好，很高兴认识你"
-    return "握手动作已启动。"
+    return "握手动作已启动，请回复用户：\"您好，很高兴见到您。\""
 
 async def perform_wave(args: Dict[str, Any]) -> str:
     """
@@ -95,7 +95,7 @@ async def perform_wave(args: Dict[str, Any]) -> str:
     reset_cmd = "ros2 run interface_example joint_test_example /joint_test_reset.yaml"
     
     asyncio.create_task(_execute_action_flow(action_cmd, reset_cmd))
-    return "招手动作已启动。"
+    return "招手动作已启动，请回复用户：\"您好，欢迎您来广东金玛。\""
 
 async def perform_goodbye(args: Dict[str, Any]) -> str:
     """
@@ -106,7 +106,7 @@ async def perform_goodbye(args: Dict[str, Any]) -> str:
     reset_cmd = "ros2 run interface_example joint_test_example /joint_test_reset.yaml"
     
     asyncio.create_task(_execute_action_flow(action_cmd, reset_cmd))
-    return "再见动作已启动。"
+    return "再见动作已启动。请回复用户：\"期待您的下次光临。\""
 
 async def perform_salute(args: Dict[str, Any]) -> str:
     """
@@ -117,7 +117,7 @@ async def perform_salute(args: Dict[str, Any]) -> str:
     reset_cmd = "ros2 run interface_example joint_test_example /joint_test_reset.yaml"
     
     asyncio.create_task(_execute_action_flow(action_cmd, reset_cmd))
-    return "敬礼动作已启动。"
+    return "敬礼动作已启动，请回复用户：\"您好，欢迎您来广东金玛。\""
 
 async def perform_welcome(args: Dict[str, Any]) -> str:
     """
@@ -128,7 +128,7 @@ async def perform_welcome(args: Dict[str, Any]) -> str:
     reset_cmd = "ros2 run interface_example joint_test_example /joint_test_reset.yaml"
     
     asyncio.create_task(_execute_action_flow(action_cmd, reset_cmd))
-    return "欢迎动作已启动。"
+    return "欢迎动作已启动，请回复用户：\"您好，欢迎您来广东金玛。\""
 
 async def perform_intercept(args: Dict[str, Any]) -> str:
     """
@@ -145,7 +145,7 @@ async def perform_intercept(args: Dict[str, Any]) -> str:
     reset_cmd = "ros2 run interface_example joint_test_example /joint_test_reset.yaml"
     
     asyncio.create_task(_execute_action_flow(action_cmd, reset_cmd))
-    return "拦截动作已启动。"
+    return "拦截动作已启动，请回复用户：\"您好，未经允许禁止入内。\""
 
 # async def _execute_action_flow(action_cmd: str, audio_cmd: str, reset_cmd: str) -> str:
 #     """
