@@ -262,21 +262,28 @@ class McpServer:
         except ImportError as e:
             logger.error(f"[MCP Server] 无法加载机器人动作工具: {e}", exc_info=True)
 
-        # 添加访客管理工具
-        # 1. 导入新的VisitorManager
-        from src.mcp.tools.visitor_management.manager import get_visitor_manager
-        
-        # 2. 获取Manager实例
-        visitor_manager = get_visitor_manager()
-        
-        # 3. 调用init_tools来注册所有访客管理工具
-        visitor_manager.init_tools(self.add_tool, PropertyList, Property, PropertyType)
+        try:
+            from src.mcp.tools.employee_query.manager import get_employee_search_manager
+            employee_search_manager = get_employee_search_manager()
+            employee_search_manager.init_tools(self.add_tool, PropertyList, Property, PropertyType)
+            logger.info("[MCP Server] 成功加载员工查询工具")
+        except ImportError as e:
+            logger.error(f"[MCP Server] 无法加载员工查询工具: {e}", exc_info=True)
 
-        # 添加AVCall音视频通话工具
-        from src.mcp.tools.av_call.manager import get_av_call_manager
-        av_call_manager = get_av_call_manager()
-        # 将McpServer实例注入到Manager中，以便Manager可以发送通知
-        av_call_manager.init_tools(self, self.add_tool, PropertyList, Property, PropertyType)
+        # # 添加访客管理工具
+        # # 1. 导入新的VisitorManager
+        # from src.mcp.tools.visitor_management.manager import get_visitor_manager
+        # # 2. 获取Manager实例
+        # visitor_manager = get_visitor_manager()
+        # # 3. 调用init_tools来注册所有访客管理工具
+        # visitor_manager.init_tools(self.add_tool, PropertyList, Property, PropertyType)
+
+        # # 添加AVCall音视频通话工具
+        # from src.mcp.tools.av_call.manager import get_av_call_manager
+        # # 获取Manager实例
+        # av_call_manager = get_av_call_manager()
+        # # 将McpServer实例注入到Manager中，以便Manager可以发送通知
+        # av_call_manager.init_tools(self, self.add_tool, PropertyList, Property, PropertyType)
 
         # # 添加系统工具
         # from src.mcp.tools.system import get_system_tools_manager

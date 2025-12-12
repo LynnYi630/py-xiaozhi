@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Timestamp
+from sqlalchemy import Column, Integer, String, TIMESTAMP
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
@@ -14,8 +14,8 @@ class Employee(Base):
     job_title = Column(String(100), comment='职务')
     department = Column(String(100), comment='部门')
     supervisor = Column(String(50), comment='上级人员')
-    created_at = Column(Timestamp, nullable=False, server_default=func.now(), comment='创建时间')
-    updated_at = Column(Timestamp, nullable=False, server_default=func.now(), onupdate=func.now(), comment='更新时间')
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now(), comment='创建时间')
+    updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now(), onupdate=func.now(), comment='更新时间')
     name_pinyin = Column(String(100), comment='姓名全拼，不带声调')
 
     def to_dict(self):
@@ -26,5 +26,5 @@ class Employee(Base):
             "job_title": self.job_title,
             "office_address": self.office_address,
             "phone": self.phone,
-            "name_pinyin": self.name_pinyin
+            "supervisor": self.supervisor
         }

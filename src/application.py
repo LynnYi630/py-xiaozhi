@@ -1151,7 +1151,13 @@ class Application:
                 await self._set_device_state(DeviceState.IDLE)
                 return
 
-            await self.protocol.send_wake_word_detected("唤醒")
+            # 根据唤醒词决定发送的文本
+            emergency_words = ["救命", "快来人啊", "救救我", "快来救救我"]
+            if wake_word in emergency_words:
+                await self.protocol.send_wake_word_detected("救命")
+            else:
+                await self.protocol.send_wake_word_detected("唤醒")
+                
             self._set_keep_listening(True)
             await self.protocol.send_start_listening(ListeningMode.AUTO_STOP)
             await self._set_device_state(DeviceState.LISTENING)
