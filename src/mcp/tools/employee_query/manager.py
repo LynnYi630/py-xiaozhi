@@ -20,13 +20,15 @@ class EmployeeSearchManager:
             add_tool((
                 "company.search_employee",
                 "查询公司员工详细信息（办公地址、电话等）。\n"
-                "当用户询问某人位置、联系方式或寻找某人时使用。\n"
+                "当用户询问某人办公地点、联系方式或寻找某人时使用。\n"
                 "Args:\n"
                 "  full_name: 员工全名（必填，支持同音字模糊匹配）\n"
-                "  department: 员工所在部门（选填，用于辅助筛选）",
+                "  is_fuzzy_confirm: 是否是模糊查询后的精确查询（布尔值）\n"
+                "Return:\n"
+                "  返回一份回答指引，请根据指引按要求回复用户",
                 PropertyList([
                     Property("full_name", PropertyType.STRING),
-                    Property("department", PropertyType.STRING, default_value=""),
+                    Property("is_fuzzy_confirm", PropertyType.BOOLEAN, default_value=False),
                 ]),
                 search_employee,
             ))

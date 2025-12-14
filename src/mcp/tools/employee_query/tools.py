@@ -27,12 +27,12 @@ async def search_employee(args: Dict[str, Any]) -> str:
     查询员工信息（一次性获取详情，但在返回文本中指导LLM如何回复）。
     """
     full_name = args.get("full_name", "").strip()
-    department = args.get("department", "")
+    is_fuzzy_confirm = args.get("is_fuzzy_confirm", False)
     
     if not full_name:
         return "请提供要查询的员工全名。"
 
-    logger.info(f"[EmployeeSearch] 开始查询: name={full_name}, dept={department}")
+    logger.info(f"[EmployeeSearch] 开始查询: name={full_name}，is_fuzzy_confirm={is_fuzzy_confirm}")
     
     db_manager = DatabaseManager.get_instance()
     session = db_manager.get_session()
@@ -48,32 +48,48 @@ async def search_employee(args: Dict[str, Any]) -> str:
             if len(employees) == 1:
                 emp = employees[0]
                 match_type = "精确匹配" if is_exact else "拼音模糊匹配"
-                return (
-                    f"【系统检索结果 - {match_type}】\n"
-                    f"锁定目标：{emp.name}\n"
-                    f"部门：{emp.department}\n"
-                    f"--------------\n"
-                    f"【敏感数据已加载 - 等待用户确认】\n"
-                    f"办公室：{emp.office_address or '未登记'}\n"
-                    f"电话：{emp.phone or '无'}\n"
-                    f"--------------\n"
-                    f"【指令】\n"
-                    f"请回复用户：'我找到了{emp.department}的{emp.name}，请问您找的是他吗？'\n"
-                    f"（用户确认后，请直接输出上述敏感数据，无需再次查询。）"
-                )
+                if not is_fuzzy_confirm:
+                    return (
+                        f"【系统检索结果 - {match_type}】\n"
+                        f"锁定目标：{emp.name}\n"
+                        f"部门：{emp.department}\n"
+                        f"--------------\n"
+                        f"【敏感数据已加载 - 等待用户确认】\n"
+                        f"办公室：{emp.office_address or '未登记'}\n"
+                        f"电话：{emp.phone or '无'}\n"
+                        f"--------------\n"
+                        f"【指令】\n"
+                        f"请查看聊天记录，若用户是第一次查询就命中，请回复用户：'我找到了{emp.department}的{emp.name}，请问 您找的是他吗？'\n"
+                        f"用户确认后，再输出上述敏感数据，无需再次查询。"
+                        f"如果用户是已经通过模糊匹配选择了一位员工来查询，则直接将用户想要的信息告诉用户，不需要额外确认。"
+                        f"根据用户的提问回答，用户问办公地点就回答办公地点，问电话就回答电话，不要回答多余信息。"
+                    )
+                else:
+                    return (
+                        f"【系统检索结果 - {match_type}】\n"
+                        f"锁定目标：{emp.name}\n"
+                        f"部门：{emp.department}\n"
+                        f"办公室：{emp.office_address or '未登记'}\n"
+                        f"电话：{emp.phone or '无'}\n"
+                        f"--------------\n"
+                        f"【指令】\n"
+                        f"直接将用户想要的信息告诉用户，不需要额外确认。"
+                        f"根据用户的提问回答，用户问办公地点就回答办公地点，问电话就回答电话，不要回答多余信息。"
+                    )
+
 
             # --- 情况 B: 多人匹配 (修改核心：使用掩码 + 严厉警告) ---
             else:
                 # 构建一个看起来像是"未加载"的列表
                 candidates_list = []
-                for e in candidates_list:
+                for e in employees:
                     # 故意显示 [LOCKED] 或 [待查询]，让模型认为它不知道
                     candidates_list.append(
                         f"- 姓名：{e.name} | 部门：{e.department} | 办公室：[数据未加载] | 电话：[数据未加载]"
                     )
 
-                candidates_str = "\n".join([f"- {e.name}（{e.department}）" for e in employees])
-
+                candidates_str = "\n".join([f"{c}" for c in candidates_list])
+                logger.info(f"[EmployeeSearch] 模糊匹配结果：{candidates_str}")
                 return (
                     f"【系统警告：发现多名重名/同音员工】\n"
                     f"已找到以下候选人：\n"
@@ -86,17 +102,14 @@ async def search_employee(args: Dict[str, Any]) -> str:
                     f"**************************************************\n"
                     f"\n"
                     f"【下一步行动指引】\n"
-                    f"1. 请将上述候选人名单展示给用户。\n"
+                    f"1. 请将上述候选人名单告知用户，例：‘我找到了某某部门的某某和某某部门的某某’。\n"
                     f"2. 询问用户具体要找哪一位。\n"
                     f"3. 待用户做出选择后（例如'我要找开发部的那个'），你必须**再次调用**本工具(search_employee)，"
-                    f"并传入精确的 `full_name` 和 `department` 参数，才能解锁详细数据。"
+                    f"并传入精确的 `full_name` 和 `department` 参数，才能解锁详细数据，解锁后直接告知用户，无需用户再次确认。"
                 )
 
         # --- 第一步：精确查找 ---
         query = session.query(Employee).filter(Employee.name == full_name)
-        if department:
-            query = query.filter(Employee.department.like(f"%{department}%"))
-        
         exact_matches = query.all()
         
         if exact_matches:
@@ -128,12 +141,6 @@ async def search_employee(args: Dict[str, Any]) -> str:
                 fuzzy_candidates.append(emp)
 
         if fuzzy_candidates:
-            if department:
-                fuzzy_candidates = [e for e in fuzzy_candidates if department in (e.department or "")]
-
-            if not fuzzy_candidates:
-                 return f"未找到名为“{full_name}”且在“{department}”的员工。"
-
             return format_privacy_response(fuzzy_candidates, is_exact=False)
         
         return (f"数据库中未检索到名为“{full_name}”的员工记录（已尝试拼音容错）。"

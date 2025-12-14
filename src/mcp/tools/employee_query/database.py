@@ -25,7 +25,7 @@ class DatabaseManager:
             config = ConfigManager.get_instance()
             # 假设 config.json 中有 database 字段，包含 mysql 配置
             # 格式需确保: mysql+pymysql://user:password@host:port/dbname
-            db_cfg = config.get("database", {})
+            db_cfg = config.get_config("DATABASE", {})
             
             # 这里为了演示，构建连接字符串，请根据实际配置结构调整
             user = db_cfg.get("user", "root")
