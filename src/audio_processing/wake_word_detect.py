@@ -372,8 +372,10 @@ class WakeWordDetector:
             if self.recognizer.AcceptWaveform(data):
                 result = json.loads(self.recognizer.Result())
                 if text := result.get("text", "").strip():
+                    # [新增] 打印 VOSK 识别到的原始内容，方便调试
+                    logger.info(f"===> [VOSK 识别原文]: {text}")
                     # 过滤过短的文本以减少误触发
-                    if len(text) >= 3:
+                    if len(text) >= 2:
                         await self._check_wake_word_text(text)
 
             # 处理部分识别结果（降低频率）

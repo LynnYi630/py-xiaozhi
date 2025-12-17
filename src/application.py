@@ -590,6 +590,22 @@ class Application:
         """
         self._create_task(self.display.start(), "CLI显示")
 
+    async def release_peripherals(self):
+        logger.info("准备释放外设控制权...")
+        if self.wake_word_detector:
+            await self.wake_word_detector.pause()
+        if self.audio_codec:
+            await self.audio_codec.release_devices()
+        logger.info("外设控制权已释放")
+
+    async def acquire_peripherals(self):
+        logger.info("准备收回外设控制权...")
+        if self.audio_codec:
+            await self.audio_codec.acquire_devices()
+        if self.wake_word_detector:
+            await self.wake_word_detector.resume()
+        logger.info("外设控制权已收回")
+
     async def schedule_command(self, command):
         """
         调度命令到命令队列.
@@ -797,14 +813,13 @@ class Application:
         """
         处理进入ACTION状态的逻辑.
         """
+        # 发送中止信号，阻止服务器的LLM响应
+        await self.protocol.send_abort_speaking(AbortReason.NONE)
         # 更新UI显示
         self._update_display_async(self.display.update_status, "执行动作中...")
-
-        # 发送中止信号，阻止服务器的LLM响应
-        logger.info("进入ACTION状态，发送中止信号到服务器")
-        await self.protocol.send_abort_speaking(AbortReason.NONE)
+        logger.info("进入ACTION状态，已发送中止信号到服务器")
         # 切换到IDLE状态
-        await self._set_device_state(DeviceState.IDLE)
+        # await self._set_device_state(DeviceState.IDLE)
 
         # 清空可能存在的音频缓冲区
         if self.audio_codec:
@@ -1318,9 +1333,9 @@ class Application:
 
         # 为AVCallManager设置Application实例引用
         try:
-            from src.mcp.tools.av_call.manager import get_av_call_manager
-            av_call_manager = get_av_call_manager()
-            av_call_manager.set_app_instance(self)
+            from src.mcp.tools.voice_call.manager import get_voice_call_manager
+            voice_call_manager = get_voice_call_manager()
+            voice_call_manager.set_app_instance(self)
             logger.info("已将Application实例注入AVCallManager")
         except Exception as e:
             logger.error(f"注入Application实例到AVCallManager失败: {e}")

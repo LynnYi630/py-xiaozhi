@@ -333,6 +333,46 @@ class AudioCodec:
             else:
                 raise
 
+    async def release_devices(self):
+        """
+        [新增] 释放音频硬件资源（中度清理），供外部程序使用
+        """
+        logger.info("正在释放音频硬件资源...")
+        
+        # 1. 释放输入流
+        if self.input_stream:
+            try:
+                if self.input_stream.active:
+                    self.input_stream.stop()
+                self.input_stream.close()
+            except Exception as e:
+                logger.warning(f"关闭输入流失败: {e}")
+            finally:
+                self.input_stream = None # 关键：置空，方便重建
+
+        # 2. 释放输出流
+        if self.output_stream:
+            try:
+                if self.output_stream.active:
+                    self.output_stream.stop()
+                self.output_stream.close()
+            except Exception as e:
+                logger.warning(f"关闭输出流失败: {e}")
+            finally:
+                self.output_stream = None # 关键：置空
+                
+        logger.info("音频硬件资源已释放")
+
+    async def acquire_devices(self):
+        """
+        [新增] 重新获取音频设备资源
+        """
+        logger.info("正在重新获取音频设备资源...")
+        # 复用现有的 reinitialize_stream 方法来重建流
+        await self.reinitialize_stream(is_input=True) # 重建输入流
+        await self.reinitialize_stream(is_input=False) # 重建输出流
+        logger.info("音频设备资源已重新获取")
+
     async def get_raw_audio_for_detection(self) -> Optional[bytes]:
         """
         获取唤醒词检测用的原始音频数据

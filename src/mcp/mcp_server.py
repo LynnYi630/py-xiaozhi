@@ -278,12 +278,16 @@ class McpServer:
         # # 3. 调用init_tools来注册所有访客管理工具
         # visitor_manager.init_tools(self.add_tool, PropertyList, Property, PropertyType)
 
-        # # 添加AVCall音视频通话工具
-        # from src.mcp.tools.av_call.manager import get_av_call_manager
-        # # 获取Manager实例
-        # av_call_manager = get_av_call_manager()
-        # # 将McpServer实例注入到Manager中，以便Manager可以发送通知
-        # av_call_manager.init_tools(self, self.add_tool, PropertyList, Property, PropertyType)
+        try:
+            # 添加VoiceCall音频通话工具
+            from src.mcp.tools.voice_call.manager import get_voice_call_manager
+            # 获取Manager实例
+            voice_call_manager = get_voice_call_manager()
+            # 将McpServer实例注入到Manager中，以便Manager可以发送通知
+            voice_call_manager.init_tools(self, self.add_tool, PropertyList, Property, PropertyType)
+            logger.info("[MCP Server] 成功加载音频通话工具")
+        except ImportError as e:
+            logger.error(f"[MCP Server] 无法加载音频通话工具: {e}", exc_info=True)
 
         # # 添加系统工具
         # from src.mcp.tools.system import get_system_tools_manager
